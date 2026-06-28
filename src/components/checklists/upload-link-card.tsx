@@ -8,12 +8,14 @@ import { formatDateTime } from "@/lib/date";
 export function UploadLinkCard({
   localUploadUrl,
   mobileUploadUrl,
+  studentName,
   uploadPath,
   expiresAt,
   followUpHref
 }: {
   localUploadUrl: string;
   mobileUploadUrl: string;
+  studentName: string;
   uploadPath: string;
   expiresAt?: string;
   followUpHref?: string;
@@ -43,7 +45,7 @@ export function UploadLinkCard({
             <span className="chip success">Upload link ready</span>
             <h2>Mobile upload handoff</h2>
             <p className="muted">
-              Scan this QR on your phone to upload documents with camera.
+              Secure document collection for {studentName}.
             </p>
             {expiryLabel ? (
               <p className="muted">Expires {expiryLabel}</p>
@@ -107,6 +109,10 @@ export function UploadLinkCard({
             title="Mobile upload QR code"
           />
           <span className="muted">Scan on phone</span>
+          <strong>Scan this QR to open the secure upload portal.</strong>
+          <span className="muted">
+            Phone must be on the same Wi-Fi for local testing.
+          </span>
         </div>
       </div>
     </div>

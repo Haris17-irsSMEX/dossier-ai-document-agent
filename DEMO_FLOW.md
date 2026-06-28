@@ -1,4 +1,4 @@
-# ApplicationOps AI Demo Flow
+# Dossier Demo Flow
 
 1. Open `/login` and sign in, or create an account at `/signup`.
 2. Complete `/onboarding` to create the agency workspace.

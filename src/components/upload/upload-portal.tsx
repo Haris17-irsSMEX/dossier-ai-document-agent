@@ -1,10 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { ShieldCheck } from "lucide-react";
 
 import { DocumentCaptureWizard } from "./document-capture-wizard";
 import { DocumentTaskList } from "./document-task-list";
 import type { ChecklistItem, UploadedDocument } from "./types";
+import { documentProgress } from "./upload-utils";
+import { APP_NAME, APP_TAGLINE } from "@/lib/constants";
 
 export function UploadPortal({
   token,
@@ -33,6 +36,13 @@ export function UploadPortal({
         (document) => document.checklist_item_id === activeItem.id
       )
     : [];
+  const requiredItems = checklistItems.filter((item) => item.is_required !== false);
+  const completedItems = requiredItems.filter(
+    (item) => documentProgress(item, uploadedDocuments).isComplete
+  ).length;
+  const completion = requiredItems.length
+    ? Math.round((completedItems / requiredItems.length) * 100)
+    : 0;
 
   function handleUploaded(document: UploadedDocument) {
     setUploadedDocuments((current) => [
@@ -43,12 +53,32 @@ export function UploadPortal({
 
   return (
     <div className="section-stack upload-portal">
+      <header className="public-upload-header">
+        <div className="public-brand">
+          <span className="public-brand-mark">D</span>
+          <span>
+            <strong>{APP_NAME}</strong>
+            <small>{APP_TAGLINE}</small>
+          </span>
+        </div>
+        <span className="chip info">Secure upload</span>
+      </header>
       {error ? <div className="alert error">{error}</div> : null}
       {success ? <div className="alert success">{success}</div> : null}
       <div className="panel upload-hero">
         <div>
-          <h1>Upload documents</h1>
-          <p className="lead">Hi {studentName}, choose a document to begin.</p>
+          <span className="eyebrow">Secure document upload</span>
+          <h1>Hi {studentName}</h1>
+          <p className="lead">Choose a requested document to begin.</p>
+        </div>
+        <div className="upload-progress-summary">
+          <strong>{completion}%</strong>
+          <span>
+            {completedItems} of {requiredItems.length} required documents
+          </span>
+          <div className="progress-track" aria-label={`${completion}% complete`}>
+            <span style={{ width: `${completion}%` }} />
+          </div>
         </div>
       </div>
       {activeItem ? (
@@ -67,6 +97,10 @@ export function UploadPortal({
           activeItemId={activeItemId}
         />
       )}
+      <div className="upload-trust-note">
+        <ShieldCheck aria-hidden="true" size={17} />
+        Your documents are uploaded securely for your consultant.
+      </div>
     </div>
   );
 }

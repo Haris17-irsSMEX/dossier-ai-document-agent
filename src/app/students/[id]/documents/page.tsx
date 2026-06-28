@@ -4,6 +4,8 @@ import { DocumentIssuesList } from "@/components/documents/document-issues-list"
 import { DocumentStatusBadge } from "@/components/documents/document-status-badge";
 import { ExtractionView } from "@/components/documents/extraction-view";
 import { ScanDocumentButton } from "@/components/documents/scan-document-button";
+import { StudentTabs } from "@/components/students/student-tabs";
+import { PageHeader } from "@/components/ui/page-header";
 import { updateChecklistStatusAction } from "@/lib/actions/checklists";
 import {
   listStudentDocuments,
@@ -57,15 +59,16 @@ export default async function StudentDocumentsPage({
   return (
     <main className="app-shell">
       <div className="workspace section-stack">
-        <div className="topbar">
-          <div>
-            <h1>{student.full_name}</h1>
-            <p className="muted">Review uploads and update document status.</p>
-          </div>
-          <Link className="button secondary" href={`/students/${id}`}>
-            Student profile
-          </Link>
-        </div>
+        <PageHeader
+          title={student.full_name}
+          subtitle="Review uploads and update document status."
+          actions={
+            <Link className="button secondary" href={`/students/${id}`}>
+              Student profile
+            </Link>
+          }
+        />
+        <StudentTabs active="documents" studentId={id} />
         <section className="panel">
           <h2>Checklist statuses</h2>
           <div className="list">

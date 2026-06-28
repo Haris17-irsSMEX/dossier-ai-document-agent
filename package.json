@@ -1,7 +1,7 @@
 {
   "name": "applicationops-ai",
   "version": "0.1.0",
-  "description": "ApplicationOps AI MVP for study-abroad and immigration consultants.",
+  "description": "Dossier AI Document Agent for study-abroad and immigration consultants.",
   "private": true,
   "scripts": {
     "dev": "next dev -H 0.0.0.0",

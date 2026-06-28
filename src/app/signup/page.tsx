@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { signupAction } from "@/lib/actions/auth";
 import { redirectIfAuthenticated } from "@/lib/auth/require-profile";
+import { BrandLockup } from "@/components/layout/brand-lockup";
 
 export default async function SignupPage({
   searchParams
@@ -14,6 +15,7 @@ export default async function SignupPage({
   return (
     <main className="app-shell auth-page">
       <section className="panel auth-card">
+        <BrandLockup />
         <h1>Create account</h1>
         <p className="lead">Create your user account, then set up your agency workspace.</p>
         {params.error ? <div className="alert error">{params.error}</div> : null}

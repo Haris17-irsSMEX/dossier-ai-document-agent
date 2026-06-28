@@ -48,7 +48,7 @@ export function DocumentTaskList({
             </div>
             <Link
               aria-label={`${action} ${item.document_name}`}
-              className="button secondary start-button"
+              className={`button start-button ${action === "Review" ? "secondary" : ""}`}
               href={`${baseHref}?documentId=${encodeURIComponent(item.id)}`}
             >
               {action}

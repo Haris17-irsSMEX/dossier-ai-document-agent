@@ -6,7 +6,7 @@ const toneByStatus: Record<string, string> = {
   blurry: "warning",
   expired: "danger",
   name_mismatch: "warning",
-  needs_review: "info",
+  needs_review: "warning",
   suspicious: "danger",
   accepted: "success",
   rejected: "danger",

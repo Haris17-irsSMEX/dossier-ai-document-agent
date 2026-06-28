@@ -45,7 +45,7 @@ function fallbackMessageFor(error?: unknown) {
     }
   }
 
-  return "Live camera scanner needs HTTPS. Use Take Photo below.";
+  return "Camera preview isn’t available on this connection. Use Take Photo or Choose File.";
 }
 
 function fileNameFor(item: ChecklistItem, step: UploadStep) {
@@ -68,7 +68,6 @@ export function CameraCapture({
   const [cameraState, setCameraState] = useState<CameraState>("opening");
   const [cameraError, setCameraError] = useState<string | null>(null);
   const availability = getLiveCameraAvailability();
-  const showDebug = process.env.NODE_ENV === "development";
 
   useEffect(() => {
     let cancelled = false;
@@ -92,7 +91,9 @@ export function CameraCapture({
 
     async function openCamera() {
       if (!availability.canUseLiveCamera) {
-        switchToFallback("Live camera scanner needs HTTPS. Use Take Photo below.");
+        switchToFallback(
+          "Camera preview isn’t available on this connection. Use Take Photo or Choose File."
+        );
         return;
       }
 
@@ -199,16 +200,12 @@ export function CameraCapture({
     event.currentTarget.value = "";
   }
 
-  const showLiveVideo = cameraState === "opening" || cameraState === "ready";
+  const showLiveVideo = cameraState === "ready";
 
   return (
     <div className="camera-capture">
-      <div className="camera-stage">
-        {cameraState === "opening" ? (
-          <div className="camera-placeholder">Opening camera...</div>
-        ) : null}
-        {showLiveVideo ? (
-          <>
+      {showLiveVideo ? (
+        <div className="camera-stage">
             <video
               ref={videoRef}
               aria-label={`${item.document_name} ${step.label} camera preview`}
@@ -223,20 +220,25 @@ export function CameraCapture({
                 frame
               </span>
             </div>
-          </>
-        ) : (
-          <div className="camera-placeholder">
-            Live camera scanner needs HTTPS. Use Take Photo below.
+        </div>
+      ) : (
+        <div className="camera-fallback-card">
+          <span className="camera-fallback-icon">+</span>
+          <div>
+            <strong>
+              {cameraState === "opening"
+                ? "Opening camera..."
+                : "Use your phone camera or choose a file"}
+            </strong>
+            <p>
+              {cameraState === "opening"
+                ? "We’ll show the document frame when the camera is ready."
+                : cameraError ||
+                  "Camera preview isn’t available on this connection. Use Take Photo or Choose File."}
+            </p>
           </div>
-        )}
-      </div>
-      {cameraError ? <div className="alert info">{cameraError}</div> : null}
-      {showDebug ? (
-        <p className="muted">
-          secureContext {String(availability.secureContext)} | mediaDevices{" "}
-          {String(availability.hasMediaDevices && availability.hasGetUserMedia)}
-        </p>
-      ) : null}
+        </div>
+      )}
       <div className="scanner-actions">
         {cameraState === "ready" ? (
           <button
@@ -247,7 +249,7 @@ export function CameraCapture({
             Capture
           </button>
         ) : null}
-        <label className={`button ${cameraState === "fallback" ? "" : "secondary"}`}>
+        <label className={`button ${cameraState === "ready" ? "secondary" : ""}`}>
           Take photo
           <input
             className="visually-hidden"
@@ -268,7 +270,8 @@ export function CameraCapture({
         </label>
       </div>
       <p className="muted">
-        On mobile, Take photo opens the camera. On desktop, it may open the file picker.
+        Your photo is uploaded securely for your consultant. Live preview
+        requires a secure HTTPS connection.
       </p>
     </div>
   );

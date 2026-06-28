@@ -9,6 +9,7 @@ type ChecklistItem = Parameters<typeof DocumentRequestBuilder>[0]["items"][numbe
 
 export function ChecklistView({
   studentId,
+  studentName,
   items,
   localUploadUrl,
   mobileUploadUrl,
@@ -18,6 +19,7 @@ export function ChecklistView({
   error
 }: {
   studentId: string;
+  studentName: string;
   items: ChecklistItem[];
   localUploadUrl?: string;
   mobileUploadUrl?: string;
@@ -34,6 +36,7 @@ export function ChecklistView({
         <UploadLinkCard
           localUploadUrl={localUploadUrl}
           mobileUploadUrl={mobileUploadUrl}
+          studentName={studentName}
           uploadPath={uploadPath}
           expiresAt={uploadExpiresAt}
           followUpHref={`/students/${studentId}/follow-up`}

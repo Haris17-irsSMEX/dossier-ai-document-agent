@@ -1,6 +1,6 @@
-# ApplicationOps AI
+# Dossier
 
-Production-prepared MVP for study-abroad and immigration document operations.
+AI Document Agent for study-abroad and immigration document operations.
 
 ## Local Setup
 

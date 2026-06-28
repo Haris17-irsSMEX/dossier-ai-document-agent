@@ -1,4 +1,5 @@
 import { StudentUploadForm } from "@/components/upload/student-upload-form";
+import { BrandLockup } from "@/components/layout/brand-lockup";
 import { getUploadPortalData } from "@/lib/actions/documents";
 
 export default async function UploadPage({
@@ -16,7 +17,8 @@ export default async function UploadPage({
     <main className="app-shell public-upload-shell">
       <div className="workspace">
         {"error" in portal ? (
-          <div className="panel">
+          <div className="panel upload-link-error">
+            <BrandLockup />
             <h1>Upload link unavailable</h1>
             <p className="lead">{portal.error}</p>
           </div>

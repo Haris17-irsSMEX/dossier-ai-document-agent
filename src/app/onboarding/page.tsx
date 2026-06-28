@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { createAgencyWorkspaceAction } from "@/lib/actions/onboarding";
 import { getAuthProfileState } from "@/lib/auth/require-profile";
+import { BrandLockup } from "@/components/layout/brand-lockup";
 
 export default async function OnboardingPage({
   searchParams
@@ -22,6 +23,7 @@ export default async function OnboardingPage({
   return (
     <main className="app-shell auth-page">
       <section className="panel auth-card">
+        <BrandLockup />
         <h1>Create agency workspace</h1>
         <p className="lead">Create your agency workspace to continue.</p>
         {params.message ? <div className="alert info">{params.message}</div> : null}

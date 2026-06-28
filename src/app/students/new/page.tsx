@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { StudentForm } from "@/components/students/student-form";
+import { PageHeader } from "@/components/ui/page-header";
 import { listConsultants } from "@/lib/actions/students";
 
 export default async function NewStudentPage({
@@ -14,15 +15,15 @@ export default async function NewStudentPage({
   return (
     <main className="app-shell">
       <div className="workspace section-stack">
-        <div className="topbar">
-          <div>
-            <h1>Create student</h1>
-            <p className="muted">Start a smart document workflow.</p>
-          </div>
-          <Link className="button secondary" href="/students">
-            Back to students
-          </Link>
-        </div>
+        <PageHeader
+          title="Create student case"
+          subtitle="Start a smart document workflow for a new applicant."
+          actions={
+            <Link className="button secondary" href="/students">
+              Back to students
+            </Link>
+          }
+        />
         <section className="panel">
           <StudentForm consultants={consultants} error={params.error} />
         </section>

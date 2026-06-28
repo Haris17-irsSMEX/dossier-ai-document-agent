@@ -7,7 +7,9 @@ import type {
   VerificationStep
 } from "@/lib/types";
 
-export const APP_NAME = "ApplicationOps AI";
+export const APP_NAME = "Dossier";
+export const APP_TAGLINE = "AI Document Agent";
+export const PRIMARY_BRAND_COLOR = "#E85031";
 export const STUDENT_DOCUMENTS_BUCKET = "students-documents";
 
 export const SUPPORTED_AI_PROVIDER = "deepseek";

@@ -1,18 +1,20 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   Archive,
   CheckCircle2,
   FileWarning,
-  MessageCircle,
   ShieldCheck,
   Sparkles
 } from "lucide-react";
 
 import {
   APP_NAME,
+  APP_TAGLINE,
   DEFAULT_DOCUMENT_CHECKLIST,
   OFFICIAL_VERIFICATION_WORKFLOW
 } from "@/lib/constants";
+import { getAuthProfileState } from "@/lib/auth/require-profile";
 
 const documentIssues = [
   { label: "Missing", value: "6", tone: "danger" },
@@ -58,7 +60,17 @@ function chipClass(tone?: string) {
   return "chip";
 }
 
-export default function Home() {
+export default async function Home() {
+  const authState = await getAuthProfileState();
+
+  if (authState.status === "ready") {
+    redirect("/dashboard");
+  }
+
+  if (authState.status === "needs_onboarding") {
+    redirect("/onboarding");
+  }
+
   return (
     <main className="app-shell">
       <div className="workspace">
@@ -69,13 +81,13 @@ export default function Home() {
             </span>
             <span>{APP_NAME}</span>
           </div>
-          <span className="status-pill">DeepSeek AI + Twilio WhatsApp MVP</span>
+          <span className="status-pill">{APP_TAGLINE}</span>
         </header>
 
         <section className="dashboard" aria-label="Application operations">
           <div className="section-stack">
             <div className="panel">
-              <h1>Consultant operations from student file to clean packet.</h1>
+              <h1>Every student document, moving in the right direction.</h1>
               <p className="lead">
                 Create student profiles, generate smart document checklists,
                 flag missing or unusable files, send WhatsApp reminders, track
@@ -157,15 +169,15 @@ export default function Home() {
             </div>
 
             <div className="panel">
-              <h2>Server-side providers</h2>
+              <h2>Dossier workflow</h2>
               <div className="timeline">
                 <div className="timeline-row">
                   <span className="timeline-dot">
-                    <MessageCircle size={15} aria-hidden="true" />
+                    <FileWarning size={15} aria-hidden="true" />
                   </span>
                   <div>
-                    <strong>Twilio WhatsApp</strong>
-                    <span>Primary reminder delivery provider</span>
+                    <strong>Collect student files</strong>
+                    <span>Secure links, mobile capture, and clear requests</span>
                   </div>
                 </div>
                 <div className="timeline-row">
@@ -173,8 +185,8 @@ export default function Home() {
                     <CheckCircle2 size={15} aria-hidden="true" />
                   </span>
                   <div>
-                    <strong>DeepSeek follow-ups</strong>
-                    <span>Generated only from server modules</span>
+                    <strong>Review what needs attention</strong>
+                    <span>Missing, blurry, expired, and review states</span>
                   </div>
                 </div>
                 <div className="timeline-row">
@@ -182,17 +194,8 @@ export default function Home() {
                     <Archive size={15} aria-hidden="true" />
                   </span>
                   <div>
-                    <strong>Application packet exports</strong>
-                    <span>Ready for ZIP and PDF workflows</span>
-                  </div>
-                </div>
-                <div className="timeline-row">
-                  <span className="timeline-dot">
-                    <FileWarning size={15} aria-hidden="true" />
-                  </span>
-                  <div>
-                    <strong>Document issue tracking</strong>
-                    <span>Missing, wrong, blurry, and expired states</span>
+                    <strong>Prepare the final packet</strong>
+                    <span>Export a clean consultant-ready application file</span>
                   </div>
                 </div>
               </div>

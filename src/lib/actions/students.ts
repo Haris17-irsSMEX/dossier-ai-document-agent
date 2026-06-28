@@ -63,7 +63,9 @@ export async function listStudents() {
 
   const { data, error } = await supabase
     .from("students")
-    .select("*, assigned_consultant:profiles!students_assigned_consultant_agency_fk(full_name, email)")
+    .select(
+      "*, assigned_consultant:profiles!students_assigned_consultant_agency_fk(full_name, email), checklist_items(status, is_required)"
+    )
     .eq("agency_id", profile.agency_id)
     .order("created_at", { ascending: false });
 
@@ -90,6 +92,107 @@ export async function getStudent(studentId: string) {
   }
 
   return data;
+}
+
+export async function archiveStudent(studentId: string) {
+  const state = await getAuthProfileState();
+
+  if (state.status === "signed_out") {
+    return {
+      ok: false as const,
+      error: "Please sign in to continue."
+    };
+  }
+
+  if (state.status === "needs_onboarding") {
+    return {
+      ok: false as const,
+      error: "Create your agency workspace to continue."
+    };
+  }
+
+  const profile = state.profile;
+  const supabase = await createSupabaseServerClient();
+  const { data: student, error: studentError } = await supabase
+    .from("students")
+    .select("*")
+    .eq("agency_id", profile.agency_id)
+    .eq("id", studentId)
+    .single();
+
+  if (studentError || !student) {
+    return {
+      ok: false as const,
+      error: "Student case not found."
+    };
+  }
+
+  if (student.status === "archived") {
+    return {
+      ok: true as const,
+      studentName: student.full_name
+    };
+  }
+
+  const archivedAt = new Date().toISOString();
+  const { error: archiveError } = await supabase
+    .from("students")
+    .update({
+      status: "archived",
+      archived_at: archivedAt
+    })
+    .eq("agency_id", profile.agency_id)
+    .eq("id", studentId);
+
+  if (archiveError) {
+    captureAppError(archiveError, {
+      module: "students",
+      action: "student_archive",
+      agencyId: profile.agency_id,
+      studentId
+    });
+
+    if (
+      archiveError.message.includes("status") ||
+      archiveError.message.includes("archived_at")
+    ) {
+      return {
+        ok: false as const,
+        error:
+          "Student archive fields are not available yet. Run the latest Supabase migration first."
+      };
+    }
+
+    return {
+      ok: false as const,
+      error: "Could not archive this student case right now."
+    };
+  }
+
+  await writeAuditLog({
+    agencyId: profile.agency_id,
+    actorProfileId: profile.id,
+    tableName: "students",
+    recordId: studentId,
+    action: "student_archived",
+    oldData: {
+      status: student.status ?? "active",
+      archived_at: student.archived_at ?? null
+    },
+    newData: {
+      status: "archived",
+      archived_at: archivedAt
+    }
+  });
+
+  revalidatePath("/students");
+  revalidatePath("/dashboard");
+  revalidatePath(`/students/${studentId}`);
+
+  return {
+    ok: true as const,
+    studentName: student.full_name
+  };
 }
 
 export async function createStudentAction(formData: FormData) {
@@ -229,7 +332,7 @@ export async function getDashboardMetrics() {
   const supabase = await createSupabaseServerClient();
 
   const [
-    { data: students, count: totalStudents },
+    { data: students },
     { data: checklistItems },
     { data: recentUploads },
     { data: recentWhatsApp },
@@ -238,7 +341,7 @@ export async function getDashboardMetrics() {
   ] = await Promise.all([
     supabase
       .from("students")
-      .select("id, full_name, deadline_date", { count: "exact" })
+      .select("*")
       .eq("agency_id", profile.agency_id)
       .order("created_at", { ascending: false }),
     supabase
@@ -271,7 +374,13 @@ export async function getDashboardMetrics() {
       .limit(5)
   ]);
 
-  const items = checklistItems ?? [];
+  const activeStudents = (students ?? []).filter(
+    (student) => student.status !== "archived"
+  );
+  const activeStudentIds = new Set(activeStudents.map((student) => student.id));
+  const items = (checklistItems ?? []).filter((item) =>
+    activeStudentIds.has(item.student_id)
+  );
   const acceptedStatuses = new Set(["accepted", "officially_verified"]);
   const accepted = items.filter((item) => acceptedStatuses.has(item.status)).length;
   const missing = items.filter((item) => item.status === "missing").length;
@@ -294,7 +403,7 @@ export async function getDashboardMetrics() {
       .map((item) => item.student_id)
   );
   const readyStudentIds = new Set(
-    (students ?? [])
+    activeStudents
       .filter((student) => {
         const requiredItems = items.filter(
           (item) => item.student_id === student.id && item.is_required
@@ -326,7 +435,9 @@ export async function getDashboardMetrics() {
   }).length;
 
   return {
-    totalStudents: totalStudents ?? 0,
+    totalStudents: activeStudents.length,
+    totalChecklistItems: items.length,
+    acceptedDocuments: accepted,
     studentsWithMissingDocuments: missingStudentIds.size,
     readyFiles: readyStudentIds.size,
     missingDocuments: missing,
@@ -335,6 +446,21 @@ export async function getDashboardMetrics() {
     completionPercentage: items.length
       ? Math.round((accepted / items.length) * 100)
       : 0,
+    studentsNeedingAction: activeStudents
+      .filter((student) => missingStudentIds.has(student.id))
+      .slice(0, 6),
+    deadlineStudents: activeStudents
+      .filter((student) => {
+        if (!student.deadline_date || readyStudentIds.has(student.id)) {
+          return false;
+        }
+
+        const days =
+          (new Date(student.deadline_date).getTime() - today.getTime()) /
+          86400000;
+        return days <= 7;
+      })
+      .slice(0, 5),
     recentUploads: recentUploads ?? [],
     recentWhatsApp: recentWhatsApp ?? [],
     recentEmails: recentEmails ?? [],

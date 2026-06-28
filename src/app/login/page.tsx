@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { loginAction } from "@/lib/actions/auth";
 import { redirectIfAuthenticated } from "@/lib/auth/require-profile";
+import { BrandLockup } from "@/components/layout/brand-lockup";
 
 export default async function LoginPage({
   searchParams
@@ -14,6 +15,7 @@ export default async function LoginPage({
   return (
     <main className="app-shell auth-page">
       <section className="panel auth-card">
+        <BrandLockup />
         <h1>Sign in</h1>
         <p className="lead">Please sign in to continue.</p>
         {params.message ? <div className="alert info">{params.message}</div> : null}

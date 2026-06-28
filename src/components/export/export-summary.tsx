@@ -1,4 +1,4 @@
-import { formatDateTime } from "@/lib/date";
+import { formatDate } from "@/lib/date";
 import type { ExportPacketPreview } from "@/lib/export/create-packet";
 
 export function ExportSummary({ preview }: { preview: ExportPacketPreview }) {
@@ -37,7 +37,7 @@ export function ExportSummary({ preview }: { preview: ExportPacketPreview }) {
           <span>Sponsor</span>
         </div>
         <div className="metric">
-          <strong>{formatDateTime(student.deadline_date) || student.deadline_date || "-"}</strong>
+          <strong>{formatDate(student.deadline_date) || student.deadline_date || "-"}</strong>
           <span>Deadline</span>
         </div>
       </div>

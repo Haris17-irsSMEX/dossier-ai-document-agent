@@ -3,6 +3,8 @@ import Link from "next/link";
 import { FollowUpMessageGenerator } from "@/components/follow-up/follow-up-message-generator";
 import { MessageHistory } from "@/components/follow-up/message-history";
 import { EmailHistory } from "@/components/follow-up/email-history";
+import { StudentTabs } from "@/components/students/student-tabs";
+import { PageHeader } from "@/components/ui/page-header";
 import { getFollowUpPageData } from "@/lib/actions/whatsapp-messages";
 import { buildDeterministicFollowUpMessage } from "@/lib/ai/follow-up-message";
 import { formatDateTime } from "@/lib/date";
@@ -70,15 +72,16 @@ export default async function StudentFollowUpPage({
   return (
     <main className="app-shell">
       <div className="workspace section-stack">
-        <div className="topbar">
-          <div>
-            <h1>{data.student.full_name}</h1>
-            <p className="muted">Send upload links and document reminders through Twilio WhatsApp.</p>
-          </div>
-          <Link className="button secondary" href={`/students/${id}`}>
-            Student profile
-          </Link>
-        </div>
+        <PageHeader
+          title={data.student.full_name}
+          subtitle="Send upload links and document reminders."
+          actions={
+            <Link className="button secondary" href={`/students/${id}`}>
+              Student profile
+            </Link>
+          }
+        />
+        <StudentTabs active="follow-up" studentId={id} />
         <section className="metrics">
           <div className="metric">
             <strong>{data.student.phone || "-"}</strong>
