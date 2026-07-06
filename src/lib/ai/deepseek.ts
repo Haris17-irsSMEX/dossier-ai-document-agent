@@ -8,7 +8,9 @@ import type { AiFollowUpRequest, AiFollowUpResult } from "@/lib/types";
 
 const SYSTEM_PROMPT = [
   "You write concise WhatsApp follow-up messages for study-abroad and immigration consultants.",
-  "Be specific about missing, wrong, blurry, or expired documents.",
+  "Use only document names when listing missing or problematic files.",
+  "Do not include accepted formats or long upload instructions unless explicitly asked.",
+  "Place the upload link on its own line with no punctuation immediately after it.",
   "Do not mention internal systems, API providers, or unverifiable official integrations.",
   "Keep the message professional, human, and easy for a student to act on."
 ].join(" ");
@@ -49,6 +51,7 @@ function buildFollowUpPrompt(input: AiFollowUpRequest) {
     `Destination: ${input.destinationCountry || "not specified"}`,
     `Institution: ${input.targetInstitution || "not specified"}`,
     `Deadline: ${input.deadline || "not specified"}`,
+    `Upload URL: ${input.uploadUrl || "not specified"}`,
     `Tone: ${input.tone || "friendly"}`,
     formatList("Missing documents", input.missingDocuments),
     formatList("Wrong documents", input.wrongDocuments),

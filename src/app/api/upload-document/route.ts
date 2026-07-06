@@ -149,6 +149,9 @@ async function loadChecklistItem(input: {
     )
     .eq("agency_id", input.uploadToken.agency_id)
     .eq("student_id", input.uploadToken.student_id)
+    .eq("visible_to_student", true)
+    .eq("is_requested", true)
+    .eq("is_archived", false)
     .eq("id", input.checklistItemId)
     .maybeSingle();
 

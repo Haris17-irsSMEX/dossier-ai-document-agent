@@ -1,11 +1,15 @@
 import { formatDate } from "@/lib/date";
+import { CHECKLIST_PHASES, getChecklistPhase } from "@/lib/checklists/phases";
+import {
+  isActiveChecklistRequest,
+  isMissingActiveRequest,
+  isChecklistReady
+} from "@/lib/checklists/request-logic";
 import type { ExportPacketPreview } from "@/lib/export/create-packet";
 
 export function ExportSummary({ preview }: { preview: ExportPacketPreview }) {
   const student = preview.student;
-  const requiredMissing = preview.checklistItems.filter(
-    (item) => item.is_required && item.status === "missing"
-  );
+  const requiredMissing = preview.checklistItems.filter(isMissingActiveRequest);
 
   return (
     <section className="panel section-stack">
@@ -21,7 +25,7 @@ export function ExportSummary({ preview }: { preview: ExportPacketPreview }) {
       </div>
       {requiredMissing.length ? (
         <div className="alert error">
-          <strong>Required documents are still missing</strong>
+          <strong>Requested documents are still missing</strong>
           <p>
             {requiredMissing.map((item) => item.document_name).join(", ")}
           </p>
@@ -54,6 +58,28 @@ export function ExportSummary({ preview }: { preview: ExportPacketPreview }) {
           <strong>{preview.completion.problemDocuments}</strong>
           <span>Problem files</span>
         </div>
+      </div>
+      <div className="export-phase-summary">
+        {CHECKLIST_PHASES.map((phase) => {
+          const phaseItems = preview.checklistItems.filter(
+            (item) =>
+              getChecklistPhase(item.phase_slug).slug === phase.slug &&
+              isActiveChecklistRequest(item)
+          );
+
+          if (!phaseItems.length) {
+            return null;
+          }
+
+          const ready = phaseItems.filter(isChecklistReady).length;
+
+          return (
+            <div key={phase.slug}>
+              <span>{phase.label}</span>
+              <strong>{ready}/{phaseItems.length}</strong>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

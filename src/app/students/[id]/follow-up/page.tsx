@@ -7,11 +7,9 @@ import { StudentTabs } from "@/components/students/student-tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { getFollowUpPageData } from "@/lib/actions/whatsapp-messages";
 import { buildDeterministicFollowUpMessage } from "@/lib/ai/follow-up-message";
+import { generateFollowUpEmailDraftAction } from "@/lib/actions/email-messages";
+import { getConnectedGmailConnectionForCurrentUser } from "@/lib/integrations/google/gmail-connection";
 import { formatDateTime } from "@/lib/date";
-import {
-  isResendConfigured,
-  isWhatsAppConfigured
-} from "@/lib/server-env";
 
 function ItemList({
   title,
@@ -54,15 +52,30 @@ export default async function StudentFollowUpPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const data = await getFollowUpPageData(id);
+  const [data, gmailConnection, initialEmailDraft] = await Promise.all([
+    getFollowUpPageData(id),
+    getConnectedGmailConnectionForCurrentUser().catch(() => null),
+    generateFollowUpEmailDraftAction({
+      studentId: id,
+      messageType: "upload_link",
+      uploadLink: ""
+    }).catch(() => ({ ok: false as const }))
+  ]);
   const initialBody = buildDeterministicFollowUpMessage({
     studentName: data.student.full_name,
     studentPhone: data.student.phone,
     targetCountry: data.student.target_country || data.student.destination_country,
     messageType: "upload_link",
+    consultantName:
+      data.communicationSettings.consultantWhatsAppDisplayName ||
+      data.profile.full_name,
+    agencyName: data.agency?.name || null,
+    deadline: data.student.deadline_date || null,
+    signature: data.communicationSettings.messageSignature || null,
     checklistItems: data.checklistItems,
     verificationRequests: data.verificationRequests
   });
+  const whatsappProvider = data.whatsappProvider;
   const verificationRequired = data.verificationRequests.filter((request) =>
     ["required", "pending", "failed", "suspicious", "manual_review", "api_not_connected"].includes(
       request.status
@@ -96,8 +109,16 @@ export default async function StudentFollowUpPage({
             <span>Upload link expiry</span>
           </div>
           <div className="metric">
-            <strong>{data.messages.length}</strong>
-            <span>WhatsApp messages</span>
+            <strong>
+              {whatsappProvider === "manual_handoff"
+                ? data.manualHandoffs.length
+                : data.messages.length}
+            </strong>
+            <span>
+              {whatsappProvider === "manual_handoff"
+                ? "WhatsApp handoffs"
+                : "WhatsApp messages"}
+            </span>
           </div>
         </section>
         <div className="dashboard">
@@ -133,14 +154,33 @@ export default async function StudentFollowUpPage({
           )}
         </section>
         <FollowUpMessageGenerator
-          emailConfigured={isResendConfigured()}
+          gmailConnectedEmail={gmailConnection?.email_address || null}
           hasActiveUploadToken={Boolean(data.latestUploadToken)}
           initialBody={initialBody}
+          initialUploadLink={null}
+          initialEmailSubject={
+            initialEmailDraft.ok ? initialEmailDraft.subject : ""
+          }
+          initialEmailBody={initialEmailDraft.ok ? initialEmailDraft.body : ""}
+          consultantDisplayName={
+            data.communicationSettings.consultantWhatsAppDisplayName ||
+            data.profile.full_name
+          }
+          consultantWhatsAppNumber={
+            data.communicationSettings.consultantWhatsAppNumber
+          }
+          communicationSettingsError={data.communicationSettingsError}
           studentEmail={data.student.email}
           studentId={id}
-          whatsappConfigured={isWhatsAppConfigured()}
+          studentPhone={data.student.phone}
+          latestManualHandoffId={data.manualHandoffs[0]?.id || null}
+          whatsappProvider={whatsappProvider}
         />
-        <MessageHistory messages={data.messages} />
+        <MessageHistory
+          handoffs={data.manualHandoffs}
+          messages={data.messages}
+          provider={whatsappProvider}
+        />
         <EmailHistory
           available={data.emailMessagesAvailable}
           messages={data.emailMessages}

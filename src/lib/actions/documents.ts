@@ -188,6 +188,11 @@ export async function getUploadPortalData(token: string) {
     .select("*, document_parts(*)")
     .eq("agency_id", uploadToken.agency_id)
     .eq("student_id", uploadToken.student_id)
+    .eq("visible_to_student", true)
+    .eq("is_requested", true)
+    .eq("is_archived", false)
+    .order("phase_order")
+    .order("item_order")
     .order("created_at");
 
   if (itemsError) {

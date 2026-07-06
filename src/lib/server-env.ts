@@ -2,6 +2,8 @@ import "server-only";
 
 import { z } from "zod";
 
+import { whatsappProviders } from "@/lib/types";
+
 const requiredString = z
   .string()
   .trim()
@@ -12,6 +14,15 @@ const optionalString = z
   .trim()
   .optional()
   .transform((value) => value || undefined);
+
+const tokenEncryptionKey = requiredString.regex(
+  /^[0-9a-fA-F]{64}$/,
+  "TOKEN_ENCRYPTION_KEY must be a 64-character hex string."
+);
+
+const configuredWhatsAppProviderSchema = z.object({
+  WHATSAPP_PROVIDER: z.enum(whatsappProviders).default("manual_handoff")
+});
 
 const deepSeekSchema = z.object({
   AI_PROVIDER: z.literal("deepseek"),
@@ -35,6 +46,16 @@ const twilioSchema = z.object({
 const resendSchema = z.object({
   RESEND_API_KEY: requiredString,
   RESEND_FROM_EMAIL: requiredString.email()
+});
+
+const googleGmailSchema = z.object({
+  GOOGLE_CLIENT_ID: requiredString,
+  GOOGLE_CLIENT_SECRET: requiredString,
+  GOOGLE_GMAIL_REDIRECT_URI: requiredString.url()
+});
+
+const tokenEncryptionSchema = z.object({
+  TOKEN_ENCRYPTION_KEY: tokenEncryptionKey
 });
 
 const triggerSchema = z.object({
@@ -126,6 +147,18 @@ export function isResendConfigured() {
   return hasAll(["RESEND_API_KEY", "RESEND_FROM_EMAIL"]);
 }
 
+export function isGoogleGmailConfigured() {
+  return hasAll([
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_GMAIL_REDIRECT_URI"
+  ]);
+}
+
+export function isTokenEncryptionConfigured() {
+  return hasAll(["TOKEN_ENCRYPTION_KEY"]);
+}
+
 export function isTriggerConfigured() {
   return hasAll(["TRIGGER_SECRET_KEY"]);
 }
@@ -186,6 +219,17 @@ export function getTwilioEnv() {
   );
 }
 
+export function getConfiguredWhatsAppProvider() {
+  return parse(
+    "configured-whatsapp-provider",
+    "WhatsApp provider",
+    configuredWhatsAppProviderSchema,
+    {
+      WHATSAPP_PROVIDER: process.env.WHATSAPP_PROVIDER?.trim() || "manual_handoff"
+    }
+  ).WHATSAPP_PROVIDER;
+}
+
 export function getResendEnv() {
   if (!isResendConfigured()) {
     throw new Error("Email provider not configured.");
@@ -196,6 +240,36 @@ export function getResendEnv() {
     "Resend",
     resendSchema,
     read(["RESEND_API_KEY", "RESEND_FROM_EMAIL"])
+  );
+}
+
+export function getGoogleGmailEnv() {
+  if (!isGoogleGmailConfigured()) {
+    throw new Error("Google Gmail integration is not configured.");
+  }
+
+  return parse(
+    "google-gmail",
+    "Google Gmail",
+    googleGmailSchema,
+    read([
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "GOOGLE_GMAIL_REDIRECT_URI"
+    ])
+  );
+}
+
+export function getTokenEncryptionEnv() {
+  if (!isTokenEncryptionConfigured()) {
+    throw new Error("Token encryption is not configured.");
+  }
+
+  return parse(
+    "token-encryption",
+    "Token encryption",
+    tokenEncryptionSchema,
+    read(["TOKEN_ENCRYPTION_KEY"])
   );
 }
 

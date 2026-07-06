@@ -13,20 +13,17 @@ import { MetricCard } from "@/components/ui/metric-card";
 import { generateUploadTokenAction, listChecklistItems } from "@/lib/actions/checklists";
 import { listStudentDocuments } from "@/lib/actions/documents";
 import { getStudent } from "@/lib/actions/students";
+import {
+  getChecklistPhase
+} from "@/lib/checklists/phases";
+import {
+  isActiveChecklistRequest,
+  isChecklistReady,
+  isMissingActiveRequest,
+  needsChecklistReview,
+  summarizeChecklist
+} from "@/lib/checklists/request-logic";
 import { formatDate } from "@/lib/date";
-
-const completedStatuses = new Set(["accepted", "officially_verified"]);
-const problemStatuses = new Set([
-  "wrong_format",
-  "wrong_document",
-  "blurry",
-  "expired",
-  "name_mismatch",
-  "needs_review",
-  "suspicious",
-  "rejected",
-  "official_verification_required"
-]);
 
 export default async function StudentDetailPage({
   params,
@@ -42,17 +39,14 @@ export default async function StudentDetailPage({
     listChecklistItems(id),
     listStudentDocuments(id)
   ]);
-  const requiredItems = items.filter((item) => item.is_required);
-  const completedItems = requiredItems.filter((item) =>
-    completedStatuses.has(item.status)
-  );
-  const missingItems = requiredItems.filter((item) => item.status === "missing");
-  const problemItems = items.filter((item) => problemStatuses.has(item.status));
-  const completion = requiredItems.length
-    ? Math.round((completedItems.length / requiredItems.length) * 100)
-    : 0;
+  const checklistSummary = summarizeChecklist(items);
+  const activeItems = checklistSummary.active;
+  const completedItems = activeItems.filter(isChecklistReady);
+  const missingItems = activeItems.filter(isMissingActiveRequest);
+  const problemItems = activeItems.filter(needsChecklistReview);
+  const completion = checklistSummary.completionPercent;
   const ready =
-    requiredItems.length > 0 && completedItems.length === requiredItems.length;
+    activeItems.length > 0 && completedItems.length === activeItems.length;
   const archived = student.status === "archived";
   const caseStatus = ready
     ? { label: "Ready", tone: "success" }
@@ -91,11 +85,35 @@ export default async function StudentDetailPage({
           : documents.length
             ? {
                 title: "Continue document collection",
-                description: `${missingItems.length} required document${missingItems.length === 1 ? "" : "s"} still missing.`,
+                description: `${missingItems.length} active document request${missingItems.length === 1 ? "" : "s"} still missing.`,
                 href: `/students/${id}/checklist`,
                 label: "View checklist"
               }
             : null;
+  const phaseProgress = [
+    "profile_academic_file",
+    "financial_sponsor_file",
+    "visa_processing",
+    "verification_attestation",
+    "optional_profile_boosters"
+  ].map((slug) => {
+    const phase = getChecklistPhase(slug);
+    const phaseItems = items.filter(
+      (item) =>
+        getChecklistPhase(item.phase_slug).slug === phase.slug &&
+        isActiveChecklistRequest(item)
+    );
+    const complete = phaseItems.filter(isChecklistReady).length;
+
+    return {
+      ...phase,
+      total: phaseItems.length,
+      complete,
+      percent: phaseItems.length
+        ? Math.round((complete / phaseItems.length) * 100)
+        : 0
+    };
+  });
 
   return (
     <main className="app-shell">
@@ -158,7 +176,7 @@ export default async function StudentDetailPage({
             icon={FileText}
             label="Documents"
             value={`${documents.length} uploaded`}
-            hint={`${missingItems.length} required missing`}
+            hint={`${missingItems.length} active requests missing`}
           />
         </section>
 
@@ -214,6 +232,24 @@ export default async function StudentDetailPage({
               <span>Send student follow-up</span>
               <span>WhatsApp or email</span>
             </Link>
+          </div>
+          <div className="case-phase-progress">
+            {phaseProgress.map((phase) => (
+              <div key={phase.slug}>
+                <span>
+                  <strong>{phase.shortLabel}</strong>
+                  <small>
+                    {phase.complete}/{phase.total || 0}
+                  </small>
+                </span>
+                <div
+                  className="progress-track"
+                  aria-label={`${phase.shortLabel} ${phase.percent}% complete`}
+                >
+                  <span style={{ width: `${phase.percent}%` }} />
+                </div>
+              </div>
+            ))}
           </div>
         </section>
 

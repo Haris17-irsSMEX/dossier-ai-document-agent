@@ -19,6 +19,7 @@ Core:
 
 ```env
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+APP_BASE_URL=http://localhost:3000
 NEXT_PUBLIC_MOBILE_APP_URL=http://YOUR_LAPTOP_IP:3000
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
@@ -36,7 +37,14 @@ DEEPSEEK_MODEL=deepseek-chat
 AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=
 AZURE_DOCUMENT_INTELLIGENCE_KEY=
 
-WHATSAPP_PROVIDER=twilio
+WHATSAPP_PROVIDER=manual_handoff
+
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_GMAIL_REDIRECT_URI=http://localhost:3000/api/integrations/google/gmail/callback
+TOKEN_ENCRYPTION_KEY=
+
+# Only needed when you want Twilio WhatsApp sending instead of manual handoff.
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
@@ -68,13 +76,88 @@ Run these migrations in order:
 5. `005_onboarding_bootstrap_fix.sql`
 6. `006_document_scan_support.sql`
 7. `009_email_messages_and_audit_support.sql`
+8. `010_students_archive_support.sql`
+9. `011_phase_based_checklist_support.sql`
+10. `012_checklist_request_logic.sql`
+11. `013_communication_connections.sql`
 
 Migration `009` adds `email_messages`, its agency-isolation RLS policies,
 indexes, and document scan summary columns. It ends by reloading the PostgREST
-schema cache.
+schema cache. Migration `010` adds safe student archiving. Migration `011`
+adds phase, ordering, requirement-level, visibility, custom-request, and
+request-archive metadata to `checklist_items`. Migration `012` separates active
+student requests from conditional, optional, and future-stage suggestions and
+adds the student case-stage field.
 
 The Storage bucket must be exactly `students-documents` and must remain private.
 Uploads and downloads use the server-side Supabase admin client.
+
+## Phase-Based Dossiers
+
+Smart checklists are organized into ten consultant workflow phases, from
+Profile & Academic File through Pre-Departure. Generation selects a practical
+base from the student's country, program level, education background, sponsor
+type, intake, and deadline. Requests are marked required, conditional, or
+optional rather than treating every possible document as mandatory.
+
+Counselors can add a custom document request inside any phase, edit generated
+requests, control student visibility, configure multipart uploads, and archive
+a request without deleting its uploaded files. The public upload portal shows
+only visible, active requests under simpler student-facing section labels.
+
+Required profile and sponsor documents are requested immediately. Conditional,
+optional, admission, visa, verification, country-specific, and pre-departure
+templates remain available to the counselor without counting as missing.
+`Request from student` activates one of these items; `Mark as not needed`
+removes it from completion counts and the upload portal without deleting any
+existing upload.
+
+## Communication Foundation
+
+Manual WhatsApp handoff is the zero-cost fallback mode. Set:
+
+```env
+WHATSAPP_PROVIDER=manual_handoff
+```
+
+In this mode, no WhatsApp API keys are required. Dossier stores consultant
+communication preferences, manual handoff logs, and future Gmail connection
+metadata without changing the existing Twilio flow.
+
+Gmail / Google Workspace support now includes consultant-owned OAuth connect,
+callback, encrypted token storage, status display, reconnect, and disconnect.
+Tokens are stored encrypted server-side using `TOKEN_ENCRYPTION_KEY`, and the
+database uses `email_connections` plus `communication_settings` for
+consultant-owned communication.
+
+Dossier requests only these Google scopes:
+
+- `openid`
+- `email`
+- `profile`
+- `https://www.googleapis.com/auth/gmail.send`
+
+Inbox-reading scopes are not requested. Actual Gmail sending is still not
+implemented in this pass.
+
+When you are ready to wire Google OAuth, set:
+
+```env
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_GMAIL_REDIRECT_URI=http://localhost:3000/api/integrations/google/gmail/callback
+TOKEN_ENCRYPTION_KEY=
+```
+
+`TOKEN_ENCRYPTION_KEY` must be a 64-character hex string, for example from:
+
+```text
+crypto.randomBytes(32).toString("hex")
+```
+
+Country-specific rules are practical MVP workflow templates. They are not
+official legal advice, and counselors should confirm current institution,
+embassy, and immigration requirements before relying on them.
 
 ## DeepSeek
 
@@ -95,7 +178,8 @@ the upload remains saved and the document is marked `scan_failed` or
 Use `TWILIO_WHATSAPP_FROM=whatsapp:+14155238886` for the Twilio Sandbox. Each
 test recipient must join the sandbox using the code shown in the Twilio
 Console. The app records both sent and failed attempts and enforces a
-30-second per-student/message-type cooldown.
+30-second per-student/message-type cooldown. Keep
+`WHATSAPP_PROVIDER=twilio` only when you want the live Twilio sandbox flow.
 
 Delivery webhooks are not implemented yet, so `delivered` is not updated from
 Twilio callbacks.
@@ -149,12 +233,23 @@ For a phone on the same Wi-Fi:
 
 ```env
 NEXT_PUBLIC_MOBILE_APP_URL=http://YOUR_LAPTOP_IP:3000
+NEXT_PUBLIC_APP_URL=http://192.168.1.105:3000
 ```
 
 Generate an upload QR, scan it from the phone, and use `Take photo`. Live
 `getUserMedia` camera scanning requires HTTPS on mobile. An HTTP LAN address
 automatically uses the native camera/file-input fallback, which can still
 preview, upload, scan, and advance through CNIC front/back.
+
+For real demos, use a public HTTPS base URL:
+
+```env
+NEXT_PUBLIC_APP_URL=https://your-public-domain.com
+APP_BASE_URL=https://your-public-domain.com
+```
+
+For temporary external testing, use ngrok or Cloudflare Tunnel so upload links
+open outside your local network.
 
 ## Export Testing
 

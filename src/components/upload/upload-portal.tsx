@@ -8,6 +8,7 @@ import { DocumentTaskList } from "./document-task-list";
 import type { ChecklistItem, UploadedDocument } from "./types";
 import { documentProgress } from "./upload-utils";
 import { APP_NAME, APP_TAGLINE } from "@/lib/constants";
+import { isActiveChecklistRequest } from "@/lib/checklists/request-logic";
 
 export function UploadPortal({
   token,
@@ -36,12 +37,12 @@ export function UploadPortal({
         (document) => document.checklist_item_id === activeItem.id
       )
     : [];
-  const requiredItems = checklistItems.filter((item) => item.is_required !== false);
-  const completedItems = requiredItems.filter(
+  const requestedItems = checklistItems.filter(isActiveChecklistRequest);
+  const completedItems = requestedItems.filter(
     (item) => documentProgress(item, uploadedDocuments).isComplete
   ).length;
-  const completion = requiredItems.length
-    ? Math.round((completedItems / requiredItems.length) * 100)
+  const completion = requestedItems.length
+    ? Math.round((completedItems / requestedItems.length) * 100)
     : 0;
 
   function handleUploaded(document: UploadedDocument) {
@@ -74,7 +75,7 @@ export function UploadPortal({
         <div className="upload-progress-summary">
           <strong>{completion}%</strong>
           <span>
-            {completedItems} of {requiredItems.length} required documents
+            {completedItems} of {requestedItems.length} requested documents
           </span>
           <div className="progress-track" aria-label={`${completion}% complete`}>
             <span style={{ width: `${completion}%` }} />

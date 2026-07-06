@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { getAppBaseUrl } from "@/lib/config/app-url";
+
 const requiredString = z
   .string()
   .trim()
@@ -61,18 +63,7 @@ export function getPublicEnv() {
 
 export function getPublicAppUrl() {
   const env = getPublicEnv();
-
-  if (env.NEXT_PUBLIC_APP_URL) {
-    return env.NEXT_PUBLIC_APP_URL.replace(/\/+$/, "");
-  }
-
-  if (process.env.NODE_ENV === "development") {
-    return "http://localhost:3000";
-  }
-
-  throw new Error(
-    "NEXT_PUBLIC_APP_URL is required to generate public links outside development."
-  );
+  return env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") || getAppBaseUrl();
 }
 
 export function getPublicMobileAppUrl() {

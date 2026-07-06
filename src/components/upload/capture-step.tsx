@@ -19,6 +19,8 @@ import {
   newestDocument,
   requiresStudentDecision,
   supportsCamera,
+  studentDocumentRequestHint,
+  studentStepRequirementLabel,
   uploadDocumentRequest
 } from "./upload-utils";
 
@@ -55,6 +57,7 @@ export function CaptureStep({
   );
   const [inputKey, setInputKey] = useState(0);
   const cameraEnabled = supportsCamera(item.accepted_formats);
+  const requestHint = studentDocumentRequestHint(item);
 
   useEffect(() => {
     return () => {
@@ -191,11 +194,12 @@ export function CaptureStep({
     <form className="capture-step" onSubmit={handleSubmit}>
       <div className="capture-step-header">
         <div>
-          <span className="muted">{step.isRequired ? "Required" : "Optional"}</span>
+          <span className="muted">{studentStepRequirementLabel(item, step)}</span>
           <h2>{step.label}</h2>
         </div>
         {latest ? <span className="chip success">Already uploaded</span> : null}
       </div>
+      {requestHint ? <p className="muted">{requestHint}</p> : null}
       {latest ? (
         <p className="muted">Latest upload: {latest.original_filename}</p>
       ) : null}

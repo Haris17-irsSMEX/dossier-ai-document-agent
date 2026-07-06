@@ -7,6 +7,9 @@ type EmailHistoryItem = {
   message_type?: string | null;
   error_message?: string | null;
   provider_message_id?: string | null;
+  from_email?: string | null;
+  to_email?: string | null;
+  sent_at?: string | null;
   created_at?: string | null;
 };
 
@@ -30,21 +33,19 @@ export function EmailHistory({
           {messages.map((message) => (
             <div className="list-item message-history-item" key={message.id}>
               <div>
-                <strong>
-                  {message.subject} - {message.status}
-                </strong>
+                <strong>{message.subject}</strong>
+                <span>{message.status.replaceAll("_", " ")}</span>
                 <span>
-                  {message.message_type?.replaceAll("_", " ") || "Email"}
+                  From {message.from_email || "-"} to {message.to_email || "-"}
                 </span>
+                <span>{message.message_type?.replaceAll("_", " ") || "Email"}</span>
                 {message.error_message ? (
                   <span className="inline-error">{message.error_message}</span>
                 ) : null}
-                {message.provider_message_id ? (
-                  <span>Resend ID: {message.provider_message_id}</span>
-                ) : null}
               </div>
               <span>
-                {formatDateTime(message.created_at) ||
+                {formatDateTime(message.sent_at || message.created_at) ||
+                  message.sent_at ||
                   message.created_at ||
                   "-"}
               </span>

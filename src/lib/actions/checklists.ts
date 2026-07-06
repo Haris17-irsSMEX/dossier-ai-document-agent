@@ -12,8 +12,13 @@ import {
   acceptedFormatSchema,
   buildSmartChecklistRules,
   checklistStatusSchema,
+  requirementLevelSchema,
   uploadTypeSchema
 } from "@/lib/checklists/rules";
+import {
+  checklistPhaseSlugs,
+  getChecklistPhase
+} from "@/lib/checklists/phases";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { captureAppError } from "@/lib/monitoring/sentry";
 
@@ -21,13 +26,32 @@ const itemUpdateSchema = z.object({
   id: z.string().uuid(),
   student_id: z.string().uuid(),
   document_name: z.string().trim().min(2),
-  is_required: z.coerce.boolean().default(false),
+  phase_slug: z.enum(checklistPhaseSlugs),
+  requirement_level: requirementLevelSchema,
+  condition_note: z.string().trim().optional(),
   instructions: z.string().trim().optional(),
   accepted_formats: z.array(acceptedFormatSchema).min(1),
   upload_type: uploadTypeSchema,
   required_parts_text: z.string().optional(),
   ai_validation_enabled: z.coerce.boolean().default(false),
   expiry_validation_enabled: z.coerce.boolean().default(false),
+  visible_to_student: z.coerce.boolean().default(false),
+  submission_deadline: z.string().optional().or(z.literal(""))
+});
+
+const customItemSchema = z.object({
+  student_id: z.string().uuid(),
+  document_name: z.string().trim().min(2, "Document name is required."),
+  phase_slug: z.enum(checklistPhaseSlugs),
+  requirement_level: requirementLevelSchema,
+  condition_note: z.string().trim().optional(),
+  instructions: z.string().trim().optional(),
+  accepted_formats: z.array(acceptedFormatSchema).min(1, "Choose at least one format."),
+  upload_type: z.enum(["single", "multiple", "front_back", "multi_part", "reference"]),
+  required_parts_text: z.string().optional(),
+  ai_validation_enabled: z.coerce.boolean().default(false),
+  expiry_validation_enabled: z.coerce.boolean().default(false),
+  visible_to_student: z.coerce.boolean().default(false),
   submission_deadline: z.string().optional().or(z.literal(""))
 });
 
@@ -50,6 +74,25 @@ function tokenHash(token: string) {
   return crypto.createHash("sha256").update(token).digest("hex");
 }
 
+function canonicalDocumentName(value: string) {
+  const name = value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+  if (name.includes("sponsor") && (name.includes("cnic") || name.includes("passport"))) {
+    return "sponsor identity";
+  }
+  if (name.includes("passport") && !name.includes("photo")) return "passport";
+  if (name.includes("cnic") || name.includes("national id")) return "cnic";
+  if (name.includes("passport size") && name.includes("photo")) return "photo";
+  if (name === "cv" || name.includes("cv resume")) return "cv";
+  if (name === "sop" || name.includes("personal statement")) return "sop";
+  if (name.includes("bank statement") && !name.includes("business")) return "bank statements";
+  if (name.includes("sponsorship affidavit")) return "sponsorship affidavit";
+  if (name.includes("visa application form")) return "visa application form";
+  if (name.includes("offer letter") || name.includes("admission letter")) return "offer letter";
+
+  return name;
+}
+
 export async function listChecklistItems(studentId: string) {
   const profile = await requireCurrentProfile();
   const supabase = await createSupabaseServerClient();
@@ -59,6 +102,9 @@ export async function listChecklistItems(studentId: string) {
     .select("*, document_parts(*)")
     .eq("agency_id", profile.agency_id)
     .eq("student_id", studentId)
+    .eq("is_archived", false)
+    .order("phase_order")
+    .order("item_order")
     .order("created_at");
 
   if (error) {
@@ -79,18 +125,98 @@ export async function generateChecklistAction(formData: FormData) {
     programLevel: student.program_level,
     educationBackground: student.education_background,
     sponsorType: student.sponsor_type,
+    intake: student.intake,
     deadlineDate: student.deadline_date
   });
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("checklist_items")
-    .select("document_name")
+    .select(
+      "id, document_name, source_template_key, is_custom, is_archived, created_at, requested_at"
+    )
     .eq("agency_id", profile.agency_id)
     .eq("student_id", studentId);
-  const existingNames = new Set((existing ?? []).map((item) => item.document_name));
-  const inserts = rules.filter((item) => !existingNames.has(item.document_name));
+
+  if (existingError) {
+    redirect(
+      `/students/${studentId}/checklist?error=${encodeURIComponent(existingError.message)}`
+    );
+  }
+
+  const { data: existingDocuments } = await supabase
+    .from("documents")
+    .select("checklist_item_id")
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", studentId);
+  const itemIdsWithUploads = new Set(
+    (existingDocuments ?? []).map((document) => document.checklist_item_id)
+  );
+  const claimedIds = new Set<string>();
+  const inserts = [];
+
+  for (const rule of rules) {
+    const candidates = (existing ?? [])
+      .filter(
+        (item) =>
+          item.is_custom !== true &&
+          item.is_archived !== true &&
+          !claimedIds.has(item.id) &&
+          (item.source_template_key === rule.source_template_key ||
+            canonicalDocumentName(item.document_name) ===
+              canonicalDocumentName(rule.document_name))
+      )
+      .sort((left, right) => {
+        const uploadDifference =
+          Number(itemIdsWithUploads.has(right.id)) -
+          Number(itemIdsWithUploads.has(left.id));
+        return (
+          uploadDifference ||
+          new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+        );
+      });
+    const primary = candidates[0];
+
+    if (!primary) {
+      inserts.push(rule);
+      continue;
+    }
+
+    claimedIds.add(primary.id);
+    await supabase
+      .from("checklist_items")
+      .update({
+        source_template_key: rule.source_template_key,
+        applies_from_stage: rule.applies_from_stage,
+        phase_slug: rule.phase_slug,
+        phase_label: rule.phase_label,
+        phase_order: rule.phase_order,
+        item_order: rule.item_order
+      })
+      .eq("agency_id", profile.agency_id)
+      .eq("id", primary.id);
+
+    const duplicateIdsWithoutUploads = candidates
+      .slice(1)
+      .filter((item) => !itemIdsWithUploads.has(item.id))
+      .map((item) => item.id);
+
+    if (duplicateIdsWithoutUploads.length) {
+      await supabase
+        .from("checklist_items")
+        .update({
+          is_archived: true,
+          archived_at: new Date().toISOString(),
+          is_requested: false,
+          counts_toward_completion: false,
+          visible_to_student: false
+        })
+        .eq("agency_id", profile.agency_id)
+        .in("id", duplicateIdsWithoutUploads);
+    }
+  }
 
   if (inserts.length) {
+    const requestedAt = new Date().toISOString();
     const { data: created, error } = await supabase
       .from("checklist_items")
       .insert(
@@ -98,7 +224,9 @@ export async function generateChecklistAction(formData: FormData) {
           ...item,
           agency_id: profile.agency_id,
           student_id: studentId,
-          created_by: profile.id
+          created_by: profile.id,
+          requested_at: item.is_requested ? requestedAt : null,
+          requested_by: item.is_requested ? profile.id : null
         }))
       )
       .select("id, required_parts");
@@ -176,9 +304,9 @@ export async function updateChecklistItemAction(formData: FormData) {
   const parsed = itemUpdateSchema.safeParse({
     ...Object.fromEntries(formData),
     accepted_formats: acceptedFormats,
-    is_required: formData.get("is_required") === "on",
     ai_validation_enabled: formData.get("ai_validation_enabled") === "on",
-    expiry_validation_enabled: formData.get("expiry_validation_enabled") === "on"
+    expiry_validation_enabled: formData.get("expiry_validation_enabled") === "on",
+    visible_to_student: formData.get("visible_to_student") === "on"
   });
 
   if (!parsed.success) {
@@ -189,21 +317,29 @@ export async function updateChecklistItemAction(formData: FormData) {
   const supabase = await createSupabaseServerClient();
   const input = parsed.data;
   const requiredParts = input.upload_type === "multi_part" ? parseParts(input.required_parts_text) : [];
+  const phase = getChecklistPhase(input.phase_slug);
 
   const { error } = await supabase
     .from("checklist_items")
     .update({
       document_name: input.document_name,
-      is_required: input.is_required,
+      phase_slug: phase.slug,
+      phase_label: phase.label,
+      phase_order: phase.order,
+      requirement_level: input.requirement_level,
+      is_required: input.requirement_level === "required",
+      condition_note: input.condition_note || null,
       instructions: input.instructions || null,
       accepted_formats: input.accepted_formats,
       upload_type: input.upload_type,
       required_parts: requiredParts,
       ai_validation_enabled: input.ai_validation_enabled,
       expiry_validation_enabled: input.expiry_validation_enabled,
+      visible_to_student: input.visible_to_student,
       submission_deadline: input.submission_deadline || null
     })
     .eq("agency_id", profile.agency_id)
+    .eq("student_id", input.student_id)
     .eq("id", input.id);
 
   if (error) {
@@ -216,23 +352,12 @@ export async function updateChecklistItemAction(formData: FormData) {
     throw new Error(error.message);
   }
 
-  await supabase
-    .from("document_parts")
-    .delete()
-    .eq("agency_id", profile.agency_id)
-    .eq("checklist_item_id", input.id);
-
-  if (requiredParts.length) {
-    await supabase.from("document_parts").insert(
-      requiredParts.map((part, index) => ({
-        agency_id: profile.agency_id,
-        checklist_item_id: input.id,
-        part_name: part.part_name,
-        is_required: part.is_required,
-        sort_order: index
-      }))
-    );
-  }
+  await syncDocumentParts({
+    supabase,
+    agencyId: profile.agency_id,
+    checklistItemId: input.id,
+    requiredParts
+  });
 
   await writeAuditLog({
     agencyId: profile.agency_id,
@@ -244,6 +369,212 @@ export async function updateChecklistItemAction(formData: FormData) {
   });
 
   revalidatePath(`/students/${input.student_id}/checklist`);
+  revalidatePath(`/upload`);
+}
+
+async function syncDocumentParts({
+  supabase,
+  agencyId,
+  checklistItemId,
+  requiredParts
+}: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  agencyId: string;
+  checklistItemId: string;
+  requiredParts: Array<{ part_name: string; is_required: boolean }>;
+}) {
+  const { data: existingParts } = await supabase
+    .from("document_parts")
+    .select("id, part_name")
+    .eq("agency_id", agencyId)
+    .eq("checklist_item_id", checklistItemId);
+  const byName = new Map(
+    (existingParts ?? []).map((part) => [part.part_name.toLowerCase(), part])
+  );
+
+  for (const [index, part] of requiredParts.entries()) {
+    const existing = byName.get(part.part_name.toLowerCase());
+
+    if (existing) {
+      await supabase
+        .from("document_parts")
+        .update({
+          part_name: part.part_name,
+          is_required: part.is_required,
+          sort_order: index
+        })
+        .eq("agency_id", agencyId)
+        .eq("id", existing.id);
+    } else {
+      await supabase.from("document_parts").insert({
+        agency_id: agencyId,
+        checklist_item_id: checklistItemId,
+        part_name: part.part_name,
+        is_required: part.is_required,
+        sort_order: index
+      });
+    }
+  }
+
+  const retainedNames = new Set(requiredParts.map((part) => part.part_name.toLowerCase()));
+  const removedPartIds = (existingParts ?? [])
+    .filter((part) => !retainedNames.has(part.part_name.toLowerCase()))
+    .map((part) => part.id);
+
+  if (!removedPartIds.length) {
+    return;
+  }
+
+  const { data: usedParts } = await supabase
+    .from("documents")
+    .select("document_part_id")
+    .in("document_part_id", removedPartIds);
+  const usedPartIds = new Set(
+    (usedParts ?? []).map((document) => document.document_part_id).filter(Boolean)
+  );
+  const removableIds = removedPartIds.filter((id) => !usedPartIds.has(id));
+
+  if (removableIds.length) {
+    await supabase
+      .from("document_parts")
+      .delete()
+      .eq("agency_id", agencyId)
+      .in("id", removableIds);
+  }
+}
+
+export async function addCustomChecklistItemAction(formData: FormData) {
+  const acceptedFormats = formData.getAll("accepted_formats").map(String);
+  const parsed = customItemSchema.safeParse({
+    ...Object.fromEntries(formData),
+    accepted_formats: acceptedFormats,
+    ai_validation_enabled: formData.get("ai_validation_enabled") === "on",
+    expiry_validation_enabled: formData.get("expiry_validation_enabled") === "on",
+    visible_to_student: formData.get("visible_to_student") === "on"
+  });
+
+  if (!parsed.success) {
+    const studentId = String(formData.get("student_id") || "");
+    redirect(
+      `/students/${studentId}/checklist?error=${encodeURIComponent(parsed.error.issues[0]?.message || "Invalid document request.")}`
+    );
+  }
+
+  const profile = await requireCurrentProfile();
+  const input = parsed.data;
+  await getStudent(input.student_id);
+  const supabase = await createSupabaseServerClient();
+  const phase = getChecklistPhase(input.phase_slug);
+  const uploadType =
+    input.upload_type === "front_back" || input.upload_type === "multi_part"
+      ? "multi_part"
+      : input.upload_type === "multiple"
+        ? "multiple"
+        : "single";
+  const requiredParts =
+    input.upload_type === "front_back"
+      ? [
+          { part_name: "Front Side", is_required: true },
+          { part_name: "Back Side", is_required: true }
+        ]
+      : input.upload_type === "multi_part"
+        ? parseParts(input.required_parts_text)
+        : [];
+  const { data: lastItem } = await supabase
+    .from("checklist_items")
+    .select("item_order")
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", input.student_id)
+    .eq("phase_slug", phase.slug)
+    .order("item_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data: created, error } = await supabase
+    .from("checklist_items")
+    .insert({
+      agency_id: profile.agency_id,
+      student_id: input.student_id,
+      created_by: profile.id,
+      category: "custom",
+      document_name: input.document_name,
+      phase_slug: phase.slug,
+      phase_label: phase.label,
+      phase_order: phase.order,
+      category_slug: "custom",
+      category_label: "Custom Request",
+      category_order: 999,
+      item_order: (lastItem?.item_order ?? 0) + 1,
+      requirement_level: input.requirement_level,
+      is_required: input.requirement_level === "required",
+      condition_note: input.condition_note || null,
+      instructions: input.instructions || null,
+      accepted_formats: input.accepted_formats,
+      upload_type: uploadType,
+      required_parts: requiredParts,
+      ai_validation_enabled: input.ai_validation_enabled,
+      expiry_validation_enabled: input.expiry_validation_enabled,
+      visible_to_student: input.visible_to_student,
+      is_custom: true,
+      is_archived: false,
+      is_requested: true,
+      requested_at: new Date().toISOString(),
+      requested_by: profile.id,
+      counts_toward_completion: true,
+      applies_from_stage: phase.slug === "pre_departure"
+        ? "pre_departure"
+        : phase.slug === "visa_processing"
+          ? "visa_processing"
+          : phase.slug === "verification_attestation"
+            ? "verification_attestation"
+            : phase.slug === "admission_offer_stage" ||
+                phase.slug === "country_specific_requirements"
+              ? "offer_received"
+              : phase.slug === "university_application"
+                ? "university_application"
+                : "profile_collection",
+      submission_deadline: input.submission_deadline || null
+    })
+    .select("id")
+    .single();
+
+  if (error || !created) {
+    captureAppError(error || new Error("Document request was not created."), {
+      module: "checklists",
+      action: "custom_document_request_add",
+      agencyId: profile.agency_id,
+      studentId: input.student_id
+    });
+    redirect(
+      `/students/${input.student_id}/checklist?error=${encodeURIComponent(error?.message || "Could not add document request.")}`
+    );
+  }
+
+  await syncDocumentParts({
+    supabase,
+    agencyId: profile.agency_id,
+    checklistItemId: created.id,
+    requiredParts
+  });
+
+  await writeAuditLog({
+    agencyId: profile.agency_id,
+    actorProfileId: profile.id,
+    tableName: "checklist_items",
+    recordId: created.id,
+    action: "custom_document_request_added",
+    newData: {
+      student_id: input.student_id,
+      document_name: input.document_name,
+      phase_slug: phase.slug,
+      requirement_level: input.requirement_level
+    }
+  });
+
+  revalidatePath(`/students/${input.student_id}/checklist`);
+  redirect(
+    `/students/${input.student_id}/checklist?success=${encodeURIComponent("Document request added")}`
+  );
 }
 
 export async function updateChecklistStatusAction(formData: FormData) {
@@ -280,18 +611,45 @@ export async function updateChecklistStatusAction(formData: FormData) {
   revalidatePath(`/students/${parsed.student_id}/checklist`);
 }
 
-export async function deleteChecklistItemAction(formData: FormData) {
-  const parsed = z
-    .object({
-      id: z.string().uuid(),
-      student_id: z.string().uuid()
-    })
-    .parse(Object.fromEntries(formData));
+const requestStateActionSchema = z.object({
+  id: z.string().uuid(),
+  student_id: z.string().uuid()
+});
+
+export async function activateChecklistItemAction(formData: FormData) {
+  const parsed = requestStateActionSchema.parse(Object.fromEntries(formData));
   const profile = await requireCurrentProfile();
+  await getStudent(parsed.student_id);
   const supabase = await createSupabaseServerClient();
+  const { data: item, error: itemError } = await supabase
+    .from("checklist_items")
+    .select("id, document_name, status, is_archived")
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", parsed.student_id)
+    .eq("id", parsed.id)
+    .single();
+
+  if (itemError || !item || item.is_archived) {
+    throw new Error("Document request was not found.");
+  }
+
+  const { count: uploadCount } = await supabase
+    .from("documents")
+    .select("id", { count: "exact", head: true })
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", parsed.student_id)
+    .eq("checklist_item_id", parsed.id);
+  const requestedAt = new Date().toISOString();
   const { error } = await supabase
     .from("checklist_items")
-    .delete()
+    .update({
+      is_requested: true,
+      requested_at: requestedAt,
+      requested_by: profile.id,
+      visible_to_student: true,
+      counts_toward_completion: true,
+      status: uploadCount ? item.status : "missing"
+    })
     .eq("agency_id", profile.agency_id)
     .eq("student_id", parsed.student_id)
     .eq("id", parsed.id);
@@ -299,7 +657,7 @@ export async function deleteChecklistItemAction(formData: FormData) {
   if (error) {
     captureAppError(error, {
       module: "checklists",
-      action: "checklist_item_delete",
+      action: "document_request_activate",
       agencyId: profile.agency_id,
       studentId: parsed.student_id
     });
@@ -311,11 +669,128 @@ export async function deleteChecklistItemAction(formData: FormData) {
     actorProfileId: profile.id,
     tableName: "checklist_items",
     recordId: parsed.id,
-    action: "checklist_item_deleted",
+    action: "document_request_activated",
+    newData: {
+      student_id: parsed.student_id,
+      requested_at: requestedAt
+    }
+  });
+
+  revalidateChecklistRequestPaths(parsed.student_id);
+  redirect(
+    `/students/${parsed.student_id}/checklist?success=${encodeURIComponent(`${item.document_name} requested from student`)}`
+  );
+}
+
+export async function markChecklistItemNotNeededAction(formData: FormData) {
+  const parsed = requestStateActionSchema.parse(Object.fromEntries(formData));
+  const profile = await requireCurrentProfile();
+  await getStudent(parsed.student_id);
+  const supabase = await createSupabaseServerClient();
+  const { data: item, error: itemError } = await supabase
+    .from("checklist_items")
+    .select("id, document_name, is_archived")
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", parsed.student_id)
+    .eq("id", parsed.id)
+    .single();
+
+  if (itemError || !item || item.is_archived) {
+    throw new Error("Document request was not found.");
+  }
+
+  const { error } = await supabase
+    .from("checklist_items")
+    .update({
+      is_requested: false,
+      requested_at: null,
+      requested_by: null,
+      visible_to_student: false,
+      counts_toward_completion: false
+    })
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", parsed.student_id)
+    .eq("id", parsed.id);
+
+  if (error) {
+    captureAppError(error, {
+      module: "checklists",
+      action: "document_request_not_needed",
+      agencyId: profile.agency_id,
+      studentId: parsed.student_id
+    });
+    throw new Error(error.message);
+  }
+
+  await writeAuditLog({
+    agencyId: profile.agency_id,
+    actorProfileId: profile.id,
+    tableName: "checklist_items",
+    recordId: parsed.id,
+    action: "document_request_marked_not_needed",
+    newData: { student_id: parsed.student_id }
+  });
+
+  revalidateChecklistRequestPaths(parsed.student_id);
+  redirect(
+    `/students/${parsed.student_id}/checklist?success=${encodeURIComponent(`${item.document_name} marked as not needed`)}`
+  );
+}
+
+function revalidateChecklistRequestPaths(studentId: string) {
+  revalidatePath(`/students/${studentId}`);
+  revalidatePath(`/students/${studentId}/checklist`);
+  revalidatePath(`/students/${studentId}/documents`);
+  revalidatePath(`/students/${studentId}/export`);
+  revalidatePath("/dashboard");
+}
+
+export async function archiveChecklistItemAction(formData: FormData) {
+  const parsed = z
+    .object({
+      id: z.string().uuid(),
+      student_id: z.string().uuid()
+    })
+    .parse(Object.fromEntries(formData));
+  const profile = await requireCurrentProfile();
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("checklist_items")
+    .update({
+      is_archived: true,
+      archived_at: new Date().toISOString(),
+      visible_to_student: false,
+      is_requested: false,
+      counts_toward_completion: false
+    })
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", parsed.student_id)
+    .eq("id", parsed.id);
+
+  if (error) {
+    captureAppError(error, {
+      module: "checklists",
+      action: "checklist_item_archive",
+      agencyId: profile.agency_id,
+      studentId: parsed.student_id
+    });
+    throw new Error(error.message);
+  }
+
+  await writeAuditLog({
+    agencyId: profile.agency_id,
+    actorProfileId: profile.id,
+    tableName: "checklist_items",
+    recordId: parsed.id,
+    action: "checklist_item_archived",
     metadata: { student_id: parsed.student_id }
   });
 
   revalidatePath(`/students/${parsed.student_id}/checklist`);
+  revalidatePath(`/students/${parsed.student_id}`);
+  redirect(
+    `/students/${parsed.student_id}/checklist?success=${encodeURIComponent("Document request archived")}`
+  );
 }
 
 export async function generateUploadTokenAction(formData: FormData) {

@@ -59,6 +59,40 @@ export type MessageType =
   | "deadline_warning"
   | "general";
 
+export const whatsappProviders = [
+  "manual_handoff",
+  "twilio",
+  "360dialog_sandbox",
+  "360dialog"
+] as const;
+
+export type WhatsAppProvider = (typeof whatsappProviders)[number];
+
+export const emailProviders = ["none", "google"] as const;
+
+export type EmailProvider = (typeof emailProviders)[number];
+
+export const emailConnectionStatuses = [
+  "connected",
+  "expired",
+  "revoked",
+  "error"
+] as const;
+
+export type EmailConnectionStatus = (typeof emailConnectionStatuses)[number];
+
+export const whatsappHandoffStatuses = [
+  "draft",
+  "handoff_opened",
+  "sent_manually",
+  "cancelled",
+  "failed"
+] as const;
+
+export type WhatsAppHandoffStatus = (typeof whatsappHandoffStatuses)[number];
+
+export type FollowUpChannel = "whatsapp" | "email";
+
 export interface StudentProfile {
   id: string;
   agencyId: string;
@@ -137,6 +171,7 @@ export interface AiFollowUpRequest {
   destinationCountry?: ApplicationCountry;
   targetInstitution?: string;
   deadline?: string;
+  uploadUrl?: string;
   missingDocuments?: string[];
   wrongDocuments?: string[];
   blurryDocuments?: string[];
@@ -172,4 +207,54 @@ export interface WhatsAppMessageResult {
   studentId?: string;
   messageType?: MessageType;
   sentAt: string;
+}
+
+export interface CommunicationSettings {
+  id: string;
+  agency_id?: string | null;
+  profile_id?: string | null;
+  whatsapp_provider: WhatsAppProvider;
+  consultant_whatsapp_number?: string | null;
+  consultant_whatsapp_display_name?: string | null;
+  email_provider: EmailProvider;
+  default_followup_channel: FollowUpChannel;
+  message_signature?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailConnection {
+  id: string;
+  agency_id?: string | null;
+  profile_id?: string | null;
+  provider: "google";
+  email_address: string;
+  google_user_id?: string | null;
+  access_token_encrypted?: string | null;
+  refresh_token_encrypted?: string | null;
+  token_expires_at?: string | null;
+  scopes?: string[] | null;
+  status: EmailConnectionStatus;
+  connected_at: string;
+  last_used_at?: string | null;
+  revoked_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WhatsAppHandoff {
+  id: string;
+  agency_id?: string | null;
+  profile_id?: string | null;
+  student_id?: string | null;
+  from_display_number?: string | null;
+  to_number: string;
+  message_body: string;
+  handoff_url: string;
+  status: WhatsAppHandoffStatus;
+  opened_at: string;
+  marked_sent_at?: string | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
 }

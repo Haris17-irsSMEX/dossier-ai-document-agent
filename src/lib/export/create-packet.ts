@@ -4,6 +4,14 @@ import JSZip from "jszip";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { writeAuditLog } from "@/lib/actions/audit";
+import { CHECKLIST_PHASES, getChecklistPhase } from "@/lib/checklists/phases";
+import {
+  isChecklistReady,
+  isMissingActiveRequest,
+  isRequested,
+  requirementLevel,
+  summarizeChecklist
+} from "@/lib/checklists/request-logic";
 import { STUDENT_DOCUMENTS_BUCKET, mapStorageBucketErrorMessage } from "@/lib/constants";
 import { formatDateTime } from "@/lib/date";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -48,7 +56,15 @@ export type ExportChecklistItem = {
   id: string;
   document_name: string;
   category: string;
+  phase_slug?: string | null;
+  phase_label?: string | null;
+  phase_order?: number | null;
+  requirement_level?: string | null;
   is_required: boolean;
+  is_requested?: boolean | null;
+  counts_toward_completion?: boolean | null;
+  applies_from_stage?: string | null;
+  is_archived?: boolean | null;
   status: string;
   submission_deadline?: string | null;
   document_parts?: Array<{
@@ -73,6 +89,8 @@ export type ExportDocument = {
     id?: string | null;
     document_name?: string | null;
     status?: string | null;
+    phase_slug?: string | null;
+    phase_label?: string | null;
   } | null;
   document_part?: {
     id?: string | null;
@@ -297,12 +315,23 @@ async function createSummaryPdf(preview: ExportPacketPreview) {
   drawLine(
     `Completion: ${preview.completion.complete}/${preview.completion.total} (${preview.completion.percent}%)`
   );
-  drawLine(`Missing required: ${preview.completion.missingRequired}`);
+  drawLine(`Missing active requests: ${preview.completion.missingRequired}`);
   drawLine(`Problem documents: ${preview.completion.problemDocuments}`);
-  preview.checklistItems.forEach((item) => {
-    drawLine(
-      `${item.document_name} - ${item.status}${item.is_required ? " - required" : " - optional"}`
+  CHECKLIST_PHASES.forEach((phase) => {
+    const phaseItems = preview.checklistItems.filter(
+      (item) => getChecklistPhase(item.phase_slug).slug === phase.slug
     );
+
+    if (!phaseItems.length) {
+      return;
+    }
+
+    drawLine(phase.label, 11, true);
+    phaseItems.forEach((item) => {
+      drawLine(
+        `${item.document_name} - ${isRequested(item) ? item.status : "not requested"} - ${requirementLevel(item)}`
+      );
+    });
   });
 
   section("Uploaded Documents");
@@ -361,6 +390,7 @@ function buildScanIssueReport(
     documents: preview.documents.map((document) => ({
       id: document.id,
       document_name: document.checklist_item?.document_name,
+      phase: document.checklist_item?.phase_label,
       part_name: document.document_part?.part_name,
       file_name: document.original_filename,
       status: document.status,
@@ -395,13 +425,16 @@ export async function getExportPacketPreview(studentId: string): Promise<ExportP
       .from("checklist_items")
       .select("*, document_parts(*)")
       .eq("student_id", studentId)
+      .eq("is_archived", false)
+      .order("phase_order")
+      .order("item_order")
       .order("created_at"),
     supabase
       .from("documents")
       .select(
         [
           "*",
-          "checklist_item:checklist_items(id, document_name, status)",
+          "checklist_item:checklist_items(id, document_name, status, phase_slug, phase_label)",
           "document_part:document_parts(id, part_name)",
           "document_extractions(*)",
           "document_issues(*)"
@@ -439,12 +472,9 @@ export async function getExportPacketPreview(studentId: string): Promise<ExportP
 
   const items = (checklistItems ?? []) as ExportChecklistItem[];
   const docs = (documents ?? []) as unknown as ExportDocument[];
-  const complete = items.filter((item) =>
-    ["uploaded", "accepted", "officially_verified"].includes(item.status)
-  ).length;
-  const missingRequired = items.filter(
-    (item) => item.is_required && item.status === "missing"
-  ).length;
+  const summary = summarizeChecklist(items);
+  const complete = summary.active.filter(isChecklistReady).length;
+  const missingRequired = items.filter(isMissingActiveRequest).length;
   const problemDocuments = docs.filter((document) =>
     isProblemStatus(document.status, document.scan_status)
   ).length;
@@ -456,11 +486,13 @@ export async function getExportPacketPreview(studentId: string): Promise<ExportP
     verificationRequests: (verificationRequests ?? []) as unknown as ExportVerificationRequest[],
     verificationResults: (verificationResults ?? []) as ExportVerificationResult[],
     completion: {
-      total: items.length,
+      total: summary.active.length,
       complete,
       missingRequired,
       problemDocuments,
-      percent: items.length ? Math.round((complete / items.length) * 100) : 0
+      percent: summary.active.length
+        ? Math.round((complete / summary.active.length) * 100)
+        : 0
     }
   };
 }

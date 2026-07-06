@@ -21,6 +21,16 @@ export type ChecklistItem = {
   id: string;
   document_name: string;
   is_required?: boolean | null;
+  requirement_level?: string | null;
+  phase_slug?: string | null;
+  phase_label?: string | null;
+  phase_order?: number | null;
+  item_order?: number | null;
+  visible_to_student?: boolean | null;
+  is_archived?: boolean | null;
+  is_requested?: boolean | null;
+  counts_toward_completion?: boolean | null;
+  applies_from_stage?: string | null;
   instructions?: string | null;
   accepted_formats: string[];
   upload_type: string;

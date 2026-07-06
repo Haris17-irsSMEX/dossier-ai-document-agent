@@ -9,6 +9,13 @@ import {
   getAuthProfileState,
   requireProfileOrRedirect
 } from "@/lib/auth/require-profile";
+import {
+  isActiveChecklistRequest,
+  isChecklistReady,
+  isMissingActiveRequest,
+  needsChecklistReview,
+  summarizeChecklist
+} from "@/lib/checklists/request-logic";
 import { buildSmartChecklistRules } from "@/lib/checklists/rules";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { captureAppError } from "@/lib/monitoring/sentry";
@@ -64,7 +71,7 @@ export async function listStudents() {
   const { data, error } = await supabase
     .from("students")
     .select(
-      "*, assigned_consultant:profiles!students_assigned_consultant_agency_fk(full_name, email), checklist_items(status, is_required)"
+      "*, assigned_consultant:profiles!students_assigned_consultant_agency_fk(full_name, email), checklist_items(status, is_required, requirement_level, is_requested, counts_toward_completion, is_archived)"
     )
     .eq("agency_id", profile.agency_id)
     .order("created_at", { ascending: false });
@@ -239,6 +246,7 @@ export async function createStudentAction(formData: FormData) {
     programLevel: input.program_level,
     educationBackground: input.education_background,
     sponsorType: input.sponsor_type,
+    intake: input.intake,
     deadlineDate: input.deadline_date
   });
 
@@ -249,7 +257,9 @@ export async function createStudentAction(formData: FormData) {
         ...item,
         agency_id: profile.agency_id,
         student_id: data.id,
-        created_by: profile.id
+        created_by: profile.id,
+        requested_at: item.is_requested ? new Date().toISOString() : null,
+        requested_by: item.is_requested ? profile.id : null
       }))
     )
     .select("id, required_parts");
@@ -346,8 +356,11 @@ export async function getDashboardMetrics() {
       .order("created_at", { ascending: false }),
     supabase
       .from("checklist_items")
-      .select("student_id, status, is_required, submission_deadline")
-      .eq("agency_id", profile.agency_id),
+      .select(
+        "student_id, status, is_required, requirement_level, is_requested, counts_toward_completion, is_archived, submission_deadline"
+      )
+      .eq("agency_id", profile.agency_id)
+      .eq("is_archived", false),
     supabase
       .from("documents")
       .select("id, student_id, original_filename, status, scan_status, created_at")
@@ -381,43 +394,37 @@ export async function getDashboardMetrics() {
   const items = (checklistItems ?? []).filter((item) =>
     activeStudentIds.has(item.student_id)
   );
-  const acceptedStatuses = new Set(["accepted", "officially_verified"]);
-  const accepted = items.filter((item) => acceptedStatuses.has(item.status)).length;
-  const missing = items.filter((item) => item.status === "missing").length;
-  const problem = items.filter((item) =>
-    [
-      "wrong_format",
-      "wrong_document",
-      "blurry",
-      "expired",
-      "name_mismatch",
-      "needs_review",
-      "suspicious",
-      "rejected",
-      "official_verification_required"
-    ].includes(item.status)
-  ).length;
+  const summary = summarizeChecklist(items);
+  const accepted = summary.active.filter(isChecklistReady).length;
+  const missing = summary.active.filter(isMissingActiveRequest).length;
+  const problem = summary.active.filter(needsChecklistReview).length;
   const missingStudentIds = new Set(
     items
-      .filter((item) => item.is_required && item.status === "missing")
+      .filter(isMissingActiveRequest)
       .map((item) => item.student_id)
   );
   const readyStudentIds = new Set(
     activeStudents
       .filter((student) => {
-        const requiredItems = items.filter(
-          (item) => item.student_id === student.id && item.is_required
+        const activeItems = items.filter(
+          (item) =>
+            item.student_id === student.id &&
+            isActiveChecklistRequest(item)
         );
         return (
-          requiredItems.length > 0 &&
-          requiredItems.every((item) => acceptedStatuses.has(item.status))
+          activeItems.length > 0 &&
+          activeItems.every(isChecklistReady)
         );
       })
       .map((student) => student.id)
   );
   const today = new Date();
   const risk = items.filter((item) => {
-    if (!item.submission_deadline || ["accepted", "officially_verified"].includes(item.status)) {
+    if (
+      !isActiveChecklistRequest(item) ||
+      !item.submission_deadline ||
+      isChecklistReady(item)
+    ) {
       return false;
     }
     const deadline = new Date(item.submission_deadline);
@@ -436,15 +443,15 @@ export async function getDashboardMetrics() {
 
   return {
     totalStudents: activeStudents.length,
-    totalChecklistItems: items.length,
+    totalChecklistItems: summary.active.length,
     acceptedDocuments: accepted,
     studentsWithMissingDocuments: missingStudentIds.size,
     readyFiles: readyStudentIds.size,
     missingDocuments: missing,
     problemDocuments: problem,
     deadlineRisk: Math.max(risk, studentDeadlineRisk),
-    completionPercentage: items.length
-      ? Math.round((accepted / items.length) * 100)
+    completionPercentage: summary.active.length
+      ? Math.round((accepted / summary.active.length) * 100)
       : 0,
     studentsNeedingAction: activeStudents
       .filter((student) => missingStudentIds.has(student.id))

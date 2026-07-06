@@ -12,7 +12,10 @@ import {
   documentsForStep,
   formatList,
   isIdentityDocument,
-  newestDocument
+  newestDocument,
+  studentDocumentRequestHint,
+  studentDocumentRequirementLabel,
+  studentDocumentRequirementTone
 } from "./upload-utils";
 
 function firstOpenStepIndex(
@@ -111,11 +114,19 @@ export function DocumentCaptureWizard({
         <Link className="button secondary" href={baseHref}>
           Back to documents
         </Link>
-        <span className="chip info">{formatList(item.accepted_formats)}</span>
+        <div className="button-row">
+          <span className={`chip ${studentDocumentRequirementTone(item)}`}>
+            {studentDocumentRequirementLabel(item)}
+          </span>
+          <span className="chip info">{formatList(item.accepted_formats)}</span>
+        </div>
       </div>
       <div>
         <h1>{item.document_name}</h1>
         <p className="lead">{item.instructions || "Upload a clear file."}</p>
+        {studentDocumentRequestHint(item) ? (
+          <p className="muted">{studentDocumentRequestHint(item)}</p>
+        ) : null}
       </div>
       {item.upload_type === "multi_part" ? (
         <ol className="wizard-steps">

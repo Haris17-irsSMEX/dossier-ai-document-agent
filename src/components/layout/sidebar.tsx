@@ -5,6 +5,7 @@ import {
   HelpCircle,
   LayoutDashboard,
   LogOut,
+  Settings2,
   UserPlus,
   Users
 } from "lucide-react";
@@ -26,7 +27,8 @@ const navigation = [
     label: "New student",
     icon: UserPlus,
     exact: true
-  }
+  },
+  { href: "/settings", label: "Settings", icon: Settings2, exact: true }
 ];
 
 function isActive(

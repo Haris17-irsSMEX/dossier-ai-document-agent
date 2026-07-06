@@ -72,6 +72,56 @@ export function supportsCamera(formats: string[]) {
   );
 }
 
+function requirementLevel(item: ChecklistItem) {
+  return item.requirement_level || (item.is_required === false ? "optional" : "required");
+}
+
+export function studentDocumentRequirementLabel(item: ChecklistItem) {
+  const level = requirementLevel(item);
+
+  if (level === "required") {
+    return "Required";
+  }
+
+  if (item.is_requested !== false) {
+    return "Requested";
+  }
+
+  return level === "optional" ? "Optional" : "Conditional";
+}
+
+export function studentDocumentRequirementTone(item: ChecklistItem) {
+  const level = requirementLevel(item);
+
+  if (level === "required") {
+    return "danger";
+  }
+
+  if (item.is_requested !== false) {
+    return "warning";
+  }
+
+  return level === "conditional" ? "warning" : "";
+}
+
+export function studentDocumentRequestHint(item: ChecklistItem) {
+  const level = requirementLevel(item);
+
+  if (item.is_requested !== false && level !== "required") {
+    return "Your consultant requested this for your case.";
+  }
+
+  return null;
+}
+
+export function studentStepRequirementLabel(item: ChecklistItem, step: UploadStep) {
+  if (item.upload_type === "multi_part" && step.part) {
+    return step.isRequired ? "Required" : "Optional";
+  }
+
+  return studentDocumentRequirementLabel(item);
+}
+
 export function isIdentityDocument(item: ChecklistItem) {
   const name = item.document_name.toLowerCase();
   const identityTerms = [
@@ -184,7 +234,7 @@ export function buildUploadSteps(item: ChecklistItem): UploadStep[] {
     {
       id: `${item.id}-file`,
       label: item.upload_type === "multiple" ? "Add file" : item.document_name,
-      isRequired: item.is_required !== false
+      isRequired: item.is_requested !== false
     }
   ];
 }

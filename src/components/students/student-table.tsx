@@ -5,6 +5,11 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { formatDate } from "@/lib/date";
+import {
+  isChecklistReady,
+  needsChecklistReview,
+  summarizeChecklist
+} from "@/lib/checklists/request-logic";
 
 import { ArchiveStudentButton } from "./archive-student-button";
 
@@ -23,36 +28,23 @@ type Student = {
   checklist_items?: Array<{
     status: string;
     is_required: boolean;
+    is_archived?: boolean | null;
+    requirement_level?: string | null;
+    is_requested?: boolean | null;
+    counts_toward_completion?: boolean | null;
   }> | null;
 };
 
-const completedStatuses = new Set(["accepted", "officially_verified"]);
-const reviewStatuses = new Set([
-  "wrong_format",
-  "wrong_document",
-  "blurry",
-  "expired",
-  "name_mismatch",
-  "needs_review",
-  "suspicious",
-  "rejected",
-  "official_verification_required"
-]);
-
 function studentProgress(student: Student) {
-  const required = (student.checklist_items ?? []).filter(
-    (item) => item.is_required
-  );
-  const completed = required.filter((item) =>
-    completedStatuses.has(item.status)
-  ).length;
-  const hasReview = required.some((item) => reviewStatuses.has(item.status));
-  const hasMissing = required.some((item) => item.status === "missing");
-  const ready = required.length > 0 && completed === required.length;
+  const summary = summarizeChecklist(student.checklist_items ?? []);
+  const completed = summary.active.filter(isChecklistReady).length;
+  const hasReview = summary.active.some(needsChecklistReview);
+  const hasMissing = summary.active.some((item) => item.status === "missing");
+  const ready = summary.active.length > 0 && completed === summary.active.length;
 
   return {
     completed,
-    total: required.length,
+    total: summary.active.length,
     status: ready
       ? "Ready"
       : hasReview

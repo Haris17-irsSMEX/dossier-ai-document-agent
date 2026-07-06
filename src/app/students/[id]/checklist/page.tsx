@@ -5,7 +5,8 @@ import { StudentTabs } from "@/components/students/student-tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { listChecklistItems } from "@/lib/actions/checklists";
 import { getStudent } from "@/lib/actions/students";
-import { getPublicAppUrl, getPublicMobileAppUrl } from "@/lib/env";
+import { buildAbsoluteAppUrl } from "@/lib/config/app-url";
+import { getPublicMobileAppUrl } from "@/lib/env";
 
 export default async function StudentChecklistPage({
   params,
@@ -23,7 +24,7 @@ export default async function StudentChecklistPage({
   const query = await searchParams;
   const [student, items] = await Promise.all([getStudent(id), listChecklistItems(id)]);
   const uploadPath = query.uploadToken ? `/upload/${query.uploadToken}` : undefined;
-  const localUploadUrl = uploadPath ? `${getPublicAppUrl()}${uploadPath}` : undefined;
+  const localUploadUrl = uploadPath ? buildAbsoluteAppUrl(uploadPath) : undefined;
   const mobileUploadUrl = uploadPath
     ? `${getPublicMobileAppUrl()}${uploadPath}`
     : undefined;
@@ -51,6 +52,7 @@ export default async function StudentChecklistPage({
           uploadExpiresAt={query.uploadExpiresAt}
           success={query.success}
           error={query.error}
+          caseStage={student.case_stage}
         />
       </div>
     </main>

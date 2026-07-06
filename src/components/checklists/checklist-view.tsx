@@ -4,6 +4,7 @@ import {
 } from "@/lib/actions/checklists";
 import { DocumentRequestBuilder } from "@/components/checklists/document-request-builder";
 import { UploadLinkCard } from "@/components/checklists/upload-link-card";
+import { summarizeChecklist } from "@/lib/checklists/request-logic";
 
 type ChecklistItem = Parameters<typeof DocumentRequestBuilder>[0]["items"][number];
 
@@ -16,7 +17,8 @@ export function ChecklistView({
   uploadPath,
   uploadExpiresAt,
   success,
-  error
+  error,
+  caseStage
 }: {
   studentId: string;
   studentName: string;
@@ -27,7 +29,10 @@ export function ChecklistView({
   uploadExpiresAt?: string;
   success?: string;
   error?: string;
+  caseStage?: string | null;
 }) {
+  const summary = summarizeChecklist(items);
+
   return (
     <div className="section-stack">
       {success ? <div className="alert success">{success}</div> : null}
@@ -64,7 +69,26 @@ export function ChecklistView({
           </div>
         </div>
       </div>
-      <DocumentRequestBuilder items={items} />
+      <section className="checklist-summary-strip" aria-label="Checklist summary">
+        {[
+          ["Required now", summary.requiredNow],
+          ["Missing required", summary.missingRequired],
+          ["Conditional available", summary.conditionalAvailable],
+          ["Optional available", summary.optionalAvailable],
+          ["Uploaded", summary.uploaded],
+          ["Needs review", summary.needsReview]
+        ].map(([label, value]) => (
+          <div key={label}>
+            <strong>{value}</strong>
+            <span>{label}</span>
+          </div>
+        ))}
+      </section>
+      <DocumentRequestBuilder
+        caseStage={caseStage}
+        studentId={studentId}
+        items={items}
+      />
     </div>
   );
 }
