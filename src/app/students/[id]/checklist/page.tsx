@@ -5,8 +5,6 @@ import { StudentTabs } from "@/components/students/student-tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { listChecklistItems } from "@/lib/actions/checklists";
 import { getStudent } from "@/lib/actions/students";
-import { buildAbsoluteAppUrl } from "@/lib/config/app-url";
-import { getPublicMobileAppUrl } from "@/lib/env";
 
 export default async function StudentChecklistPage({
   params,
@@ -23,18 +21,13 @@ export default async function StudentChecklistPage({
   const { id } = await params;
   const query = await searchParams;
   const [student, items] = await Promise.all([getStudent(id), listChecklistItems(id)]);
-  const uploadPath = query.uploadToken ? `/upload/${query.uploadToken}` : undefined;
-  const localUploadUrl = uploadPath ? buildAbsoluteAppUrl(uploadPath) : undefined;
-  const mobileUploadUrl = uploadPath
-    ? `${getPublicMobileAppUrl()}${uploadPath}`
-    : undefined;
 
   return (
     <main className="app-shell">
       <div className="workspace section-stack">
         <PageHeader
           title={student.full_name}
-          subtitle="Checklist and document request builder."
+          subtitle="Select the documents you want to collect from this student."
           actions={
             <Link className="button secondary" href={`/students/${id}`}>
               Student profile
@@ -44,12 +37,7 @@ export default async function StudentChecklistPage({
         <StudentTabs active="checklist" studentId={id} />
         <ChecklistView
           studentId={id}
-          studentName={student.full_name}
           items={items}
-          localUploadUrl={localUploadUrl}
-          mobileUploadUrl={mobileUploadUrl}
-          uploadPath={uploadPath}
-          uploadExpiresAt={query.uploadExpiresAt}
           success={query.success}
           error={query.error}
           caseStage={student.case_stage}

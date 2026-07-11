@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAuthProfileState } from "@/lib/auth/require-profile";
 import {
+  buildGoogleSettingsUrl,
   buildGoogleGmailAuthUrl,
   createGoogleOAuthState,
   GOOGLE_GMAIL_OAUTH_STATE_COOKIE
@@ -13,22 +14,18 @@ import {
 } from "@/lib/server-env";
 
 function redirectWithMessage(
-  request: Request,
   path: string,
   key: "error" | "message",
   message: string
 ) {
-  const url = new URL(path, request.url);
-  url.searchParams.set(key, message);
-  return NextResponse.redirect(url);
+  return NextResponse.redirect(buildGoogleSettingsUrl(key, message, path));
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   const state = await getAuthProfileState();
 
   if (state.status === "signed_out") {
     return redirectWithMessage(
-      request,
       "/login",
       "message",
       "Please sign in to continue."
@@ -37,7 +34,6 @@ export async function GET(request: Request) {
 
   if (state.status === "needs_onboarding") {
     return redirectWithMessage(
-      request,
       "/onboarding",
       "message",
       "Create your agency workspace to continue."
@@ -46,7 +42,6 @@ export async function GET(request: Request) {
 
   if (!isGoogleGmailConfigured()) {
     return redirectWithMessage(
-      request,
       "/settings",
       "error",
       "Google Gmail integration is not configured."
@@ -55,7 +50,6 @@ export async function GET(request: Request) {
 
   if (!isTokenEncryptionConfigured()) {
     return redirectWithMessage(
-      request,
       "/settings",
       "error",
       "TOKEN_ENCRYPTION_KEY is required before connecting Gmail."
@@ -85,7 +79,6 @@ export async function GET(request: Request) {
     });
 
     return redirectWithMessage(
-      request,
       "/settings",
       "error",
       error instanceof Error

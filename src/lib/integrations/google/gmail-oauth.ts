@@ -2,6 +2,7 @@ import "server-only";
 
 import crypto from "node:crypto";
 
+import { getPublicAppUrl } from "@/lib/config/app-url";
 import { getGoogleGmailEnv } from "@/lib/server-env";
 
 const GOOGLE_AUTH_BASE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -59,20 +60,44 @@ export function createGoogleOAuthState() {
   return crypto.randomBytes(32).toString("hex");
 }
 
+function getValidatedGoogleRedirectUri() {
+  const { GOOGLE_GMAIL_REDIRECT_URI } = getGoogleGmailEnv();
+
+  try {
+    const parsed = new URL(GOOGLE_GMAIL_REDIRECT_URI);
+
+    if (parsed.hostname === "0.0.0.0") {
+      throw new Error(
+        "Google Gmail redirect URI is not configured correctly. Use http://localhost:3000/api/integrations/google/gmail/callback in local development."
+      );
+    }
+
+    return GOOGLE_GMAIL_REDIRECT_URI.replace(/\/+$/, "");
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+
+    throw new Error(
+      "Google Gmail redirect URI is not configured correctly. Use http://localhost:3000/api/integrations/google/gmail/callback in local development."
+    );
+  }
+}
+
 export function buildGoogleGmailAuthUrl(state: string) {
   if (!state?.trim()) {
     throw new Error("Google OAuth state is missing.");
   }
 
-  const { GOOGLE_CLIENT_ID, GOOGLE_GMAIL_REDIRECT_URI } = getGoogleGmailEnv();
+  const { GOOGLE_CLIENT_ID } = getGoogleGmailEnv();
   const url = new URL(GOOGLE_AUTH_BASE_URL);
 
   url.searchParams.set("client_id", GOOGLE_CLIENT_ID);
-  url.searchParams.set("redirect_uri", GOOGLE_GMAIL_REDIRECT_URI);
+  url.searchParams.set("redirect_uri", getValidatedGoogleRedirectUri());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", GOOGLE_GMAIL_SCOPES.join(" "));
   url.searchParams.set("access_type", "offline");
-  url.searchParams.set("prompt", "consent");
+  url.searchParams.set("prompt", "consent select_account");
   url.searchParams.set("include_granted_scopes", "true");
   url.searchParams.set("state", state);
 
@@ -86,15 +111,14 @@ export async function exchangeGoogleCodeForTokens(code: string) {
 
   const {
     GOOGLE_CLIENT_ID,
-    GOOGLE_CLIENT_SECRET,
-    GOOGLE_GMAIL_REDIRECT_URI
+    GOOGLE_CLIENT_SECRET
   } = getGoogleGmailEnv();
   const body = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     client_secret: GOOGLE_CLIENT_SECRET,
     code,
     grant_type: "authorization_code",
-    redirect_uri: GOOGLE_GMAIL_REDIRECT_URI
+    redirect_uri: getValidatedGoogleRedirectUri()
   });
 
   const response = await fetch(GOOGLE_TOKEN_URL, {
@@ -236,4 +260,14 @@ export async function refreshGoogleAccessToken(refreshToken: string) {
       : null,
     idToken: typeof payload?.id_token === "string" ? payload.id_token : null
   } satisfies GoogleTokenExchangeResult;
+}
+
+export function buildGoogleSettingsUrl(
+  key: "error" | "success" | "message",
+  value: string,
+  path = "/settings"
+) {
+  const url = new URL(`${getPublicAppUrl()}${path}`);
+  url.searchParams.set(key, value);
+  return url;
 }

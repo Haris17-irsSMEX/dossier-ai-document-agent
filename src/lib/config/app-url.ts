@@ -2,12 +2,29 @@ function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+function browserSafeBaseUrl(value: string) {
+  const trimmed = trimTrailingSlash(value.trim());
+
+  try {
+    const parsed = new URL(trimmed);
+
+    if (parsed.hostname === "0.0.0.0") {
+      parsed.hostname = "localhost";
+      return trimTrailingSlash(parsed.toString());
+    }
+
+    return trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
 export function getAppBaseUrl() {
   const configured =
     process.env.NEXT_PUBLIC_APP_URL?.trim() || process.env.APP_BASE_URL?.trim();
 
   if (configured) {
-    return trimTrailingSlash(configured);
+    return browserSafeBaseUrl(configured);
   }
 
   if (process.env.NODE_ENV === "development") {
@@ -15,6 +32,10 @@ export function getAppBaseUrl() {
   }
 
   return "http://localhost:3000";
+}
+
+export function getPublicAppUrl() {
+  return getAppBaseUrl();
 }
 
 export function buildAbsoluteAppUrl(path: string) {

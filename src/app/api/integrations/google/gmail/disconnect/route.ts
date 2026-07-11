@@ -4,26 +4,23 @@ import { NextResponse } from "next/server";
 import { createAuditLog } from "@/lib/actions/audit";
 import { getAuthProfileState } from "@/lib/auth/require-profile";
 import { disconnectGmailConnection } from "@/lib/integrations/google/gmail-connection";
+import { buildGoogleSettingsUrl } from "@/lib/integrations/google/gmail-oauth";
 import { captureAppError } from "@/lib/monitoring/sentry";
 
 function redirectWithMessage(
-  request: Request,
   key: "error" | "success" | "message",
   message: string,
   status = 303,
   path = "/settings"
 ) {
-  const url = new URL(path, request.url);
-  url.searchParams.set(key, message);
-  return NextResponse.redirect(url, status);
+  return NextResponse.redirect(buildGoogleSettingsUrl(key, message, path), status);
 }
 
-export async function POST(request: Request) {
+export async function POST() {
   const authState = await getAuthProfileState();
 
   if (authState.status === "signed_out") {
     return redirectWithMessage(
-      request,
       "message",
       "Please sign in to continue.",
       303,
@@ -33,7 +30,6 @@ export async function POST(request: Request) {
 
   if (authState.status === "needs_onboarding") {
     return redirectWithMessage(
-      request,
       "message",
       "Create your agency workspace to continue.",
       303,
@@ -64,7 +60,6 @@ export async function POST(request: Request) {
 
     revalidatePath("/settings");
     return redirectWithMessage(
-      request,
       "success",
       connection
         ? "Gmail connection disconnected."
@@ -79,7 +74,6 @@ export async function POST(request: Request) {
     });
 
     return redirectWithMessage(
-      request,
       "error",
       error instanceof Error
         ? error.message

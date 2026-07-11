@@ -12,11 +12,13 @@ import {
   Users
 } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import {
   getCurrentProfile,
   getDashboardMetrics
 } from "@/lib/actions/students";
+import { normalizeRole } from "@/lib/auth/role-utils";
 import { formatDate } from "@/lib/date";
 
 const metricItems = [
@@ -28,10 +30,13 @@ const metricItems = [
 ] as const;
 
 export default async function DashboardPage() {
-  const [metrics, profile] = await Promise.all([
-    getDashboardMetrics(),
-    getCurrentProfile()
-  ]);
+  const profile = await getCurrentProfile();
+
+  if (normalizeRole(profile?.role) === "platform_admin") {
+    redirect("/admin");
+  }
+
+  const metrics = await getDashboardMetrics();
   const name = profile?.full_name || "Consultant";
   const firstName = name.trim().split(/\s+/)[0];
   const initials = name

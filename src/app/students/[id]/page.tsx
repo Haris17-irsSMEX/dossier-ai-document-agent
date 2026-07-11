@@ -8,14 +8,18 @@ import {
 import Link from "next/link";
 
 import { ArchiveStudentButton } from "@/components/students/archive-student-button";
+import { EditStudentProfileButton } from "@/components/students/edit-student-profile-button";
 import { StudentTabs } from "@/components/students/student-tabs";
 import { MetricCard } from "@/components/ui/metric-card";
-import { generateUploadTokenAction, listChecklistItems } from "@/lib/actions/checklists";
+import { listChecklistItems } from "@/lib/actions/checklists";
 import { listStudentDocuments } from "@/lib/actions/documents";
-import { getStudent } from "@/lib/actions/students";
 import {
-  getChecklistPhase
-} from "@/lib/checklists/phases";
+  getCurrentProfile,
+  getStudent,
+  listConsultants
+} from "@/lib/actions/students";
+import { isAgencyAdmin, isPlatformAdmin } from "@/lib/auth/roles";
+import { getChecklistPhase } from "@/lib/checklists/phases";
 import {
   isActiveChecklistRequest,
   isChecklistReady,
@@ -24,6 +28,13 @@ import {
   summarizeChecklist
 } from "@/lib/checklists/request-logic";
 import { formatDate } from "@/lib/date";
+
+type NextAction = {
+  title: string;
+  description: string;
+  href: string;
+  label: string;
+};
 
 export default async function StudentDetailPage({
   params,
@@ -34,20 +45,29 @@ export default async function StudentDetailPage({
 }) {
   const { id } = await params;
   const query = await searchParams;
-  const [student, items, documents] = await Promise.all([
+  const [student, items, documents, consultants, profile] = await Promise.all([
     getStudent(id),
     listChecklistItems(id),
-    listStudentDocuments(id)
+    listStudentDocuments(id),
+    listConsultants(),
+    getCurrentProfile()
   ]);
+
+  const canManageAssignments = Boolean(
+    profile && (isAgencyAdmin(profile) || isPlatformAdmin(profile))
+  );
   const checklistSummary = summarizeChecklist(items);
   const activeItems = checklistSummary.active;
   const completedItems = activeItems.filter(isChecklistReady);
   const missingItems = activeItems.filter(isMissingActiveRequest);
   const problemItems = activeItems.filter(needsChecklistReview);
+  const requestedCount = checklistSummary.requestedFromStudent;
+  const suggestionCount = checklistSummary.suggestedByDossier;
   const completion = checklistSummary.completionPercent;
   const ready =
     activeItems.length > 0 && completedItems.length === activeItems.length;
   const archived = student.status === "archived";
+
   const caseStatus = ready
     ? { label: "Ready", tone: "success" }
     : problemItems.length
@@ -58,38 +78,57 @@ export default async function StudentDetailPage({
   const displayStatus = archived
     ? { label: "Archived", tone: "archived" }
     : caseStatus;
-  const nextAction =
-    archived
-      ? null
-      : items.length === 0
-      ? {
-          title: "Generate the document checklist",
-          description: "Create the first document request set for this student.",
-          href: `/students/${id}/checklist`,
-          label: "View checklist"
-        }
-      : problemItems.length
-        ? {
-            title: "Review document issues",
-            description: `${problemItems.length} document request${problemItems.length === 1 ? "" : "s"} need counselor attention.`,
-            href: `/students/${id}/documents`,
-            label: "Review documents"
-          }
-        : ready
-          ? {
-              title: "Prepare the application packet",
-              description: "Required documents are ready for packet generation.",
-              href: `/students/${id}/export`,
-              label: "Export packet"
-            }
-          : documents.length
-            ? {
-                title: "Continue document collection",
-                description: `${missingItems.length} active document request${missingItems.length === 1 ? "" : "s"} still missing.`,
-                href: `/students/${id}/checklist`,
-                label: "View checklist"
-              }
-            : null;
+
+  let nextAction: NextAction | null = null;
+
+  if (!archived) {
+    if (problemItems.length) {
+      nextAction = {
+        title: "Review uploaded documents",
+        description: "Some files need your review before export.",
+        href: `/students/${id}/documents`,
+        label: "Review documents"
+      };
+    } else if (requestedCount === 0) {
+      nextAction = {
+        title: "Select documents to request",
+        description:
+          "Choose the documents you want to collect before sending an upload link.",
+        href: `/students/${id}/checklist`,
+        label: "Open checklist"
+      };
+    } else if (ready) {
+      nextAction = {
+        title: "Prepare the application packet",
+        description: "Requested documents are ready for packet generation.",
+        href: `/students/${id}/export`,
+        label: "Export packet"
+      };
+    } else if (missingItems.length) {
+      nextAction = {
+        title: "Send the student a secure upload link",
+        description:
+          "The checklist is ready. Open Follow-up to send the upload link by WhatsApp or email.",
+        href: `/students/${id}/follow-up`,
+        label: "Open follow-up"
+      };
+    } else if (documents.length) {
+      nextAction = {
+        title: "Review uploaded documents",
+        description: "Uploaded files are available for review and export planning.",
+        href: `/students/${id}/documents`,
+        label: "Review documents"
+      };
+    } else {
+      nextAction = {
+        title: "Send the student a secure upload link",
+        description: "Open Follow-up to send the upload link by WhatsApp or email.",
+        href: `/students/${id}/follow-up`,
+        label: "Open follow-up"
+      };
+    }
+  }
+
   const phaseProgress = [
     "profile_academic_file",
     "financial_sponsor_file",
@@ -115,6 +154,10 @@ export default async function StudentDetailPage({
     };
   });
 
+  const checklistOverviewText = suggestionCount
+    ? `${requestedCount} requested · ${suggestionCount} suggestions`
+    : `${requestedCount} requested`;
+
   return (
     <main className="app-shell">
       <div className="workspace section-stack">
@@ -130,14 +173,19 @@ export default async function StudentDetailPage({
               </span>
               <span>{student.intake || "Intake not set"}</span>
               <span>{student.program_level || "Level not set"}</span>
-              <span>
-                Deadline {formatDate(student.deadline_date) || "not set"}
-              </span>
+              <span>Deadline {formatDate(student.deadline_date) || "not set"}</span>
             </div>
           </div>
-          <Link className="button secondary" href="/students">
-            Back to students
-          </Link>
+          <div className="button-row">
+            <Link className="button secondary" href="/students">
+              Back to students
+            </Link>
+            <EditStudentProfileButton
+              canAssignCounselor={canManageAssignments}
+              consultants={consultants}
+              student={student}
+            />
+          </div>
         </header>
 
         <StudentTabs active="overview" studentId={id} />
@@ -150,11 +198,7 @@ export default async function StudentDetailPage({
         ) : null}
 
         <section className="metric-grid case-metrics">
-          <MetricCard
-            icon={Phone}
-            label="Phone"
-            value={student.phone || "Not set"}
-          />
+          <MetricCard icon={Phone} label="Phone" value={student.phone || "Not set"} />
           <MetricCard
             icon={UserRound}
             label="Sponsor"
@@ -193,22 +237,15 @@ export default async function StudentDetailPage({
               {nextAction?.description ||
                 (archived
                   ? "Archived cases are hidden from the active pipeline but remain available for reference."
-                  : "The checklist is ready. Start collecting the requested documents.")}
+                  : "Open Follow-up to continue the student reminder workflow.")}
             </p>
           </div>
           {nextAction ? (
             <Link className="button" href={nextAction.href}>
               {nextAction.label}
             </Link>
-          ) : archived ? (
-            <span className="chip archived">Archived case</span>
           ) : (
-            <form action={generateUploadTokenAction}>
-              <input type="hidden" name="student_id" value={id} />
-              <button className="button" type="submit">
-                Generate upload link
-              </button>
-            </form>
+            <span className="chip archived">Archived case</span>
           )}
         </section>
 
@@ -222,7 +259,7 @@ export default async function StudentDetailPage({
           <div className="quick-actions">
             <Link className="quick-action" href={`/students/${id}/checklist`}>
               <span>Customize document checklist</span>
-              <span>{items.length} requests</span>
+              <span>{checklistOverviewText}</span>
             </Link>
             <Link className="quick-action" href={`/students/${id}/documents`}>
               <span>Review uploaded documents</span>

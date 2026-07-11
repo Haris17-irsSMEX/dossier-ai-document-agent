@@ -15,6 +15,7 @@ import {
   OFFICIAL_VERIFICATION_WORKFLOW
 } from "@/lib/constants";
 import { getAuthProfileState } from "@/lib/auth/require-profile";
+import { getRoleLandingPath } from "@/lib/auth/role-utils";
 
 const documentIssues = [
   { label: "Missing", value: "6", tone: "danger" },
@@ -64,7 +65,7 @@ export default async function Home() {
   const authState = await getAuthProfileState();
 
   if (authState.status === "ready") {
-    redirect("/dashboard");
+    redirect(getRoleLandingPath(authState.profile.role));
   }
 
   if (authState.status === "needs_onboarding") {
@@ -89,7 +90,7 @@ export default async function Home() {
             <div className="panel">
               <h1>Every student document, moving in the right direction.</h1>
               <p className="lead">
-                Create student profiles, generate smart document checklists,
+                Create student profiles, prepare smart document options,
                 flag missing or unusable files, send WhatsApp reminders, track
                 official verification steps, and prepare application exports.
               </p>
@@ -98,7 +99,7 @@ export default async function Home() {
                   Create student profile
                 </Link>
                 <Link className="button secondary" href="/students/new">
-                  Generate checklist
+                  Prepare document options
                 </Link>
                 <Link className="button secondary" href="/students">
                   Select a student first

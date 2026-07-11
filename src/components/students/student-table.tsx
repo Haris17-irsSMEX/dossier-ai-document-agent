@@ -12,6 +12,7 @@ import {
 } from "@/lib/checklists/request-logic";
 
 import { ArchiveStudentButton } from "./archive-student-button";
+import { EditStudentProfileButton } from "./edit-student-profile-button";
 
 type Student = {
   id: string;
@@ -25,6 +26,18 @@ type Student = {
   deadline_date?: string | null;
   status?: string | null;
   archived_at?: string | null;
+  education_background?: string | null;
+  sponsor_type?: string | null;
+  assigned_consultant_id?: string | null;
+  assigned_counselor_id?: string | null;
+  assigned_consultant?: {
+    full_name?: string | null;
+    email?: string | null;
+  } | null;
+  assigned_counselor?: {
+    full_name?: string | null;
+    email?: string | null;
+  } | null;
   checklist_items?: Array<{
     status: string;
     is_required: boolean;
@@ -33,6 +46,11 @@ type Student = {
     is_requested?: boolean | null;
     counts_toward_completion?: boolean | null;
   }> | null;
+};
+
+type Consultant = {
+  id: string;
+  full_name: string;
 };
 
 function studentProgress(student: Student) {
@@ -56,7 +74,15 @@ function studentProgress(student: Student) {
   };
 }
 
-export function StudentTable({ students }: { students: Student[] }) {
+export function StudentTable({
+  canManageAssignments = false,
+  students,
+  consultants
+}: {
+  canManageAssignments?: boolean;
+  students: Student[];
+  consultants: Consultant[];
+}) {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState("active");
   const [filter, setFilter] = useState("all");
@@ -144,6 +170,7 @@ export function StudentTable({ students }: { students: Student[] }) {
                 <th>Student</th>
                 <th>Destination</th>
                 <th>Level</th>
+                {canManageAssignments ? <th>Counselor</th> : null}
                 <th>Deadline</th>
                 <th>Progress</th>
                 <th>Status</th>
@@ -172,6 +199,13 @@ export function StudentTable({ students }: { students: Student[] }) {
                       <span>{student.intake || "Intake not set"}</span>
                     </td>
                     <td>{student.program_level || "-"}</td>
+                    {canManageAssignments ? (
+                      <td>
+                        {student.assigned_counselor?.full_name ||
+                          student.assigned_consultant?.full_name ||
+                          "Unassigned"}
+                      </td>
+                    ) : null}
                     <td>{formatDate(student.deadline_date) || "Not set"}</td>
                     <td>
                       {progress.total
@@ -191,6 +225,12 @@ export function StudentTable({ students }: { students: Student[] }) {
                         >
                           Open
                         </Link>
+                        <EditStudentProfileButton
+                          canAssignCounselor={canManageAssignments}
+                          compact
+                          consultants={consultants}
+                          student={student}
+                        />
                         <ArchiveStudentButton
                           archived={archived}
                           compact

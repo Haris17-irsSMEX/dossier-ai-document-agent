@@ -6,9 +6,17 @@ import { z } from "zod";
 
 import { writeAuditLog } from "@/lib/actions/audit";
 import {
-  getAuthProfileState,
-  requireProfileOrRedirect
+  getAuthProfileState
 } from "@/lib/auth/require-profile";
+import {
+  canAccessStudent,
+  canAssignStudentToCounselor,
+  isAgencyAdmin,
+  isPlatformAdmin,
+  normalizeRole,
+  requireAgencyMember,
+  type RoleProfile
+} from "@/lib/auth/roles";
 import {
   isActiveChecklistRequest,
   isChecklistReady,
@@ -33,8 +41,33 @@ const studentSchema = z.object({
   deadline_date: z.string().optional().or(z.literal(""))
 });
 
+const updateStudentSchema = z.object({
+  student_id: z.string().uuid(),
+  full_name: z.string().trim().min(2, "Student name is required."),
+  phone: z.string().trim().optional(),
+  email: z.string().trim().email("Enter a valid email address.").optional().or(z.literal("")),
+  target_country: z.string().trim().min(2, "Target country is required."),
+  intake: z.string().trim().min(2, "Intake is required."),
+  program_level: z.string().trim().min(2, "Program level is required."),
+  education_background: z.string().trim().min(2, "Education background is required."),
+  sponsor_type: z.string().trim().min(2, "Sponsor type is required."),
+  assigned_consultant_id: z.string().uuid("Choose a consultant."),
+  deadline_date: z.string().optional().or(z.literal("")),
+  status: z.enum(["active", "archived"]).optional().or(z.literal(""))
+});
+
 function emptyToNull(value?: string) {
   return value?.trim() ? value.trim() : null;
+}
+
+function normalizePhone(value?: string) {
+  const phone = value?.trim();
+
+  if (!phone) {
+    return null;
+  }
+
+  return phone.replace(/\s+/g, " ");
 }
 
 export async function getCurrentProfile() {
@@ -43,38 +76,170 @@ export async function getCurrentProfile() {
 }
 
 export async function requireCurrentProfile() {
-  return requireProfileOrRedirect();
+  return requireAgencyMember();
+}
+
+async function getAgencyStudentLimit(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  agencyId: string
+) {
+  const { data } = await supabase
+    .from("agencies")
+    .select("max_students_per_counselor")
+    .eq("id", agencyId)
+    .maybeSingle();
+
+  return Number(data?.max_students_per_counselor || 5);
+}
+
+async function countAssignedActiveStudents(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  counselorId: string,
+  agencyId: string,
+  exceptStudentId?: string
+) {
+  let query = supabase
+    .from("students")
+    .select("id", { count: "exact", head: true })
+    .eq("agency_id", agencyId)
+    .neq("status", "archived")
+    .or(
+      `assigned_counselor_id.eq.${counselorId},assigned_consultant_id.eq.${counselorId}`
+    );
+
+  if (exceptStudentId) {
+    query = query.neq("id", exceptStudentId);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return count ?? 0;
+}
+
+async function resolveStudentAssignee({
+  agencyId,
+  currentStudentId,
+  profile,
+  requestedAssigneeId,
+  supabase
+}: {
+  agencyId: string;
+  currentStudentId?: string;
+  profile: RoleProfile;
+  requestedAssigneeId?: string | null;
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+}) {
+  const requestedId =
+    isPlatformAdmin(profile) || isAgencyAdmin(profile)
+      ? requestedAssigneeId || profile.id
+      : profile.id;
+
+  if (!requestedId) {
+    throw new Error("Choose a counselor.");
+  }
+
+  if (!isPlatformAdmin(profile) && !isAgencyAdmin(profile) && requestedId !== profile.id) {
+    throw new Error("Counselors can only assign students to themselves.");
+  }
+
+  const { data: counselor, error } = await supabase
+    .from("profiles")
+    .select("id, agency_id, full_name, email, role, status, is_active")
+    .eq("id", requestedId)
+    .maybeSingle();
+
+  if (error || !counselor) {
+    throw new Error("Selected counselor was not found.");
+  }
+
+  if (!isPlatformAdmin(profile) && counselor.agency_id !== profile.agency_id) {
+    throw new Error("Selected counselor is not in your agency.");
+  }
+
+  if (counselor.is_active === false || counselor.status === "suspended" || counselor.status === "archived") {
+    throw new Error("Selected counselor is not active.");
+  }
+
+  if (
+    (isPlatformAdmin(profile) || isAgencyAdmin(profile)) &&
+    !canAssignStudentToCounselor(profile, counselor)
+  ) {
+    throw new Error("You do not have permission to assign this counselor.");
+  }
+
+  if (normalizeRole(counselor.role) === "counselor") {
+    const limit = await getAgencyStudentLimit(supabase, agencyId);
+    const activeCount = await countAssignedActiveStudents(
+      supabase,
+      counselor.id,
+      agencyId,
+      currentStudentId
+    );
+
+    if (activeCount >= limit) {
+      throw new Error(`This counselor already has ${limit} active students.`);
+    }
+  }
+
+  return counselor.id;
 }
 
 export async function listConsultants() {
   const profile = await requireCurrentProfile();
   const supabase = await createSupabaseServerClient();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("profiles")
-    .select("id, full_name, email, role")
-    .eq("agency_id", profile.agency_id)
+    .select("id, full_name, email, role, status")
     .eq("is_active", true)
     .order("full_name");
+
+  if (!isPlatformAdmin(profile)) {
+    query = query.eq("agency_id", profile.agency_id);
+  }
+
+  if (normalizeRole(profile.role) === "counselor") {
+    query = query.eq("id", profile.id);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return data ?? [];
+  return (data ?? []).filter(
+    (consultant) =>
+      consultant.status !== "suspended" && consultant.status !== "archived"
+  );
 }
 
 export async function listStudents() {
   const profile = await requireCurrentProfile();
   const supabase = await createSupabaseServerClient();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("students")
     .select(
-      "*, assigned_consultant:profiles!students_assigned_consultant_agency_fk(full_name, email), checklist_items(status, is_required, requirement_level, is_requested, counts_toward_completion, is_archived)"
+      "*, assigned_consultant:profiles!students_assigned_consultant_agency_fk(full_name, email), assigned_counselor:profiles!students_assigned_counselor_agency_fk(full_name, email), checklist_items(status, is_required, requirement_level, is_requested, counts_toward_completion, is_archived)"
     )
-    .eq("agency_id", profile.agency_id)
     .order("created_at", { ascending: false });
+
+  if (!isPlatformAdmin(profile)) {
+    query = query.eq("agency_id", profile.agency_id);
+  }
+
+  if (normalizeRole(profile.role) === "counselor") {
+    query = query.or(
+      `assigned_counselor_id.eq.${profile.id},assigned_consultant_id.eq.${profile.id}`
+    );
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(error.message);
@@ -87,15 +252,19 @@ export async function getStudent(studentId: string) {
   const profile = await requireCurrentProfile();
   const supabase = await createSupabaseServerClient();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("students")
-    .select("*, assigned_consultant:profiles!students_assigned_consultant_agency_fk(full_name, email)")
-    .eq("agency_id", profile.agency_id)
-    .eq("id", studentId)
-    .single();
+    .select("*, assigned_consultant:profiles!students_assigned_consultant_agency_fk(full_name, email), assigned_counselor:profiles!students_assigned_counselor_agency_fk(full_name, email)")
+    .eq("id", studentId);
 
-  if (error) {
-    throw new Error(error.message);
+  if (!isPlatformAdmin(profile)) {
+    query = query.eq("agency_id", profile.agency_id);
+  }
+
+  const { data, error } = await query.single();
+
+  if (error || !data || !canAccessStudent(profile, data)) {
+    throw new Error(error?.message || "Student case not found.");
   }
 
   return data;
@@ -118,16 +287,15 @@ export async function archiveStudent(studentId: string) {
     };
   }
 
-  const profile = state.profile;
+  const profile = await requireAgencyMember();
   const supabase = await createSupabaseServerClient();
   const { data: student, error: studentError } = await supabase
     .from("students")
     .select("*")
-    .eq("agency_id", profile.agency_id)
     .eq("id", studentId)
     .single();
 
-  if (studentError || !student) {
+  if (studentError || !student || !canAccessStudent(profile, student)) {
     return {
       ok: false as const,
       error: "Student case not found."
@@ -148,7 +316,6 @@ export async function archiveStudent(studentId: string) {
       status: "archived",
       archived_at: archivedAt
     })
-    .eq("agency_id", profile.agency_id)
     .eq("id", studentId);
 
   if (archiveError) {
@@ -212,11 +379,29 @@ export async function createStudentAction(formData: FormData) {
 
   const supabase = await createSupabaseServerClient();
   const input = parsed.data;
+  let assigneeId = input.assigned_consultant_id;
+
+  try {
+    assigneeId = await resolveStudentAssignee({
+      agencyId: profile.agency_id,
+      profile,
+      requestedAssigneeId: input.assigned_consultant_id,
+      supabase
+    });
+  } catch (assignmentError) {
+    const message =
+      assignmentError instanceof Error
+        ? assignmentError.message
+        : "Could not assign this student.";
+    redirect(`/students/new?error=${encodeURIComponent(message)}`);
+  }
+
   const { data, error } = await supabase
     .from("students")
     .insert({
       agency_id: profile.agency_id,
-      assigned_consultant_id: input.assigned_consultant_id,
+      assigned_consultant_id: assigneeId,
+      assigned_counselor_id: assigneeId,
       created_by: profile.id,
       full_name: input.full_name,
       phone: emptyToNull(input.phone),
@@ -335,6 +520,136 @@ export async function createStudentAction(formData: FormData) {
   revalidatePath("/students");
   revalidatePath("/dashboard");
   redirect(`/students/${data.id}?success=${encodeURIComponent("Student created and checklist generated.")}`);
+}
+
+export async function updateStudentProfileAction(formData: FormData) {
+  const state = await getAuthProfileState();
+
+  if (state.status === "signed_out") {
+    return {
+      ok: false as const,
+      error: "Please sign in to continue."
+    };
+  }
+
+  if (state.status === "needs_onboarding") {
+    return {
+      ok: false as const,
+      error: "Create your agency workspace to continue."
+    };
+  }
+
+  const parsed = updateStudentSchema.safeParse(Object.fromEntries(formData));
+
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      error: parsed.error.issues[0]?.message || "Invalid student profile."
+    };
+  }
+
+  const profile = state.profile;
+  const supabase = await createSupabaseServerClient();
+  const input = parsed.data;
+  const { data: student, error: studentError } = await supabase
+    .from("students")
+    .select(
+      "id, agency_id, full_name, phone, email, target_country, destination_country, intake, program_level, education_background, sponsor_type, assigned_consultant_id, assigned_counselor_id, deadline_date, status"
+    )
+    .eq("id", input.student_id)
+    .single();
+
+  if (studentError || !student || !canAccessStudent(profile, student)) {
+    return {
+      ok: false as const,
+      error: "You do not have permission to edit this student."
+    };
+  }
+
+  let assigneeId = student.assigned_counselor_id || student.assigned_consultant_id;
+
+  try {
+    assigneeId = await resolveStudentAssignee({
+      agencyId: student.agency_id,
+      currentStudentId: student.id,
+      profile,
+      requestedAssigneeId: input.assigned_consultant_id,
+      supabase
+    });
+  } catch (assignmentError) {
+    return {
+      ok: false as const,
+      error:
+        assignmentError instanceof Error
+          ? assignmentError.message
+          : "Could not assign this student."
+    };
+  }
+
+  const payload = {
+    full_name: input.full_name,
+    phone: normalizePhone(input.phone),
+    email: emptyToNull(input.email),
+    target_country: input.target_country,
+    destination_country: input.target_country,
+    intake: input.intake,
+    program_level: input.program_level,
+    education_background: input.education_background,
+    sponsor_type: input.sponsor_type,
+    assigned_consultant_id: assigneeId,
+    assigned_counselor_id: assigneeId,
+    deadline_date: emptyToNull(input.deadline_date),
+    status: input.status?.trim() ? input.status.trim() : student.status
+  };
+
+  const majorFieldsChanged =
+    student.target_country !== payload.target_country ||
+    student.intake !== payload.intake ||
+    student.program_level !== payload.program_level ||
+    student.sponsor_type !== payload.sponsor_type;
+
+  const { error: updateError } = await supabase
+    .from("students")
+    .update(payload)
+    .eq("id", input.student_id);
+
+  if (updateError) {
+    captureAppError(updateError, {
+      module: "students",
+      action: "student_profile_update",
+      agencyId: profile.agency_id,
+      studentId: input.student_id
+    });
+
+    return {
+      ok: false as const,
+      error: "Could not update this student profile right now."
+    };
+  }
+
+  await writeAuditLog({
+    agencyId: profile.agency_id,
+    actorProfileId: profile.id,
+    tableName: "students",
+    recordId: input.student_id,
+    action: "student_profile_updated",
+    oldData: student,
+    newData: payload
+  });
+
+  revalidatePath("/students");
+  revalidatePath(`/students/${input.student_id}`);
+  revalidatePath(`/students/${input.student_id}/follow-up`);
+  revalidatePath(`/students/${input.student_id}/checklist`);
+  revalidatePath(`/students/${input.student_id}/documents`);
+
+  return {
+    ok: true as const,
+    message: "Student profile updated.",
+    warning: majorFieldsChanged
+      ? "Profile changed. Review document options if needed."
+      : null
+  };
 }
 
 export async function getDashboardMetrics() {

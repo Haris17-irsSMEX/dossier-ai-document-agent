@@ -72,6 +72,23 @@ export const emailProviders = ["none", "google"] as const;
 
 export type EmailProvider = (typeof emailProviders)[number];
 
+export const appRoles = ["platform_admin", "agency_admin", "counselor"] as const;
+
+export type AppRole = (typeof appRoles)[number];
+
+export const agencyStatuses = ["active", "suspended", "archived"] as const;
+
+export type AgencyStatus = (typeof agencyStatuses)[number];
+
+export const profileStatuses = [
+  "active",
+  "invited",
+  "suspended",
+  "archived"
+] as const;
+
+export type ProfileStatus = (typeof profileStatuses)[number];
+
 export const emailConnectionStatuses = [
   "connected",
   "expired",

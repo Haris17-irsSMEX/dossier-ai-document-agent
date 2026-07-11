@@ -2,7 +2,8 @@ import Link from "next/link";
 
 import { StudentTable } from "@/components/students/student-table";
 import { PageHeader } from "@/components/ui/page-header";
-import { listStudents } from "@/lib/actions/students";
+import { getCurrentProfile, listConsultants, listStudents } from "@/lib/actions/students";
+import { isAgencyAdmin, isPlatformAdmin } from "@/lib/auth/roles";
 
 export default async function StudentsPage({
   searchParams
@@ -10,7 +11,13 @@ export default async function StudentsPage({
   searchParams: Promise<{ success?: string; error?: string }>;
 }) {
   const query = await searchParams;
-  const students = await listStudents();
+  const [students, consultants, profile] = await Promise.all([
+    listStudents(),
+    listConsultants(),
+    getCurrentProfile()
+  ]);
+  const canManageAssignments =
+    Boolean(profile && (isAgencyAdmin(profile) || isPlatformAdmin(profile)));
 
   return (
     <main className="app-shell">
@@ -27,7 +34,11 @@ export default async function StudentsPage({
         {query.success ? <div className="alert success">{query.success}</div> : null}
         {query.error ? <div className="alert error">{query.error}</div> : null}
         <section className="panel">
-          <StudentTable students={students} />
+          <StudentTable
+            canManageAssignments={canManageAssignments}
+            consultants={consultants}
+            students={students}
+          />
         </section>
       </div>
     </main>

@@ -96,9 +96,14 @@ export function isChecklistReady(item: ChecklistRequestState) {
 
 export function summarizeChecklist<T extends ChecklistRequestState>(items: T[]) {
   const active = items.filter(isActiveChecklistRequest);
+  const unarchived = items.filter((item) => item.is_archived !== true);
+  const suggested = unarchived.filter((item) => !isRequested(item));
 
   return {
     active,
+    requestedFromStudent: active.length,
+    missing: active.filter((item) => (item.status || "missing") === "missing").length,
+    suggestedByDossier: suggested.length,
     requiredNow: active.filter((item) => requirementLevel(item) === "required").length,
     missingRequired: active.filter(
       (item) =>
@@ -120,12 +125,8 @@ export function summarizeChecklist<T extends ChecklistRequestState>(items: T[]) 
         requirementLevel(item) === "optional" &&
         !isRequested(item)
     ).length,
-    uploaded: items.filter(
-      (item) => item.is_archived !== true && hasUploadedChecklistFile(item)
-    ).length,
-    needsReview: items.filter(
-      (item) => item.is_archived !== true && needsChecklistReview(item)
-    ).length,
+    uploaded: active.filter(hasUploadedChecklistFile).length,
+    needsReview: active.filter(needsChecklistReview).length,
     ready: active.filter(isChecklistReady).length,
     completionPercent: active.length
       ? Math.round((active.filter(isChecklistReady).length / active.length) * 100)

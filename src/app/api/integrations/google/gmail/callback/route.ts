@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { createAuditLog } from "@/lib/actions/audit";
 import { getAuthProfileState } from "@/lib/auth/require-profile";
 import {
+  buildGoogleSettingsUrl,
   getGoogleUserInfo,
   exchangeGoogleCodeForTokens,
   GOOGLE_GMAIL_OAUTH_STATE_COOKIE
@@ -16,29 +17,19 @@ import {
   isTokenEncryptionConfigured
 } from "@/lib/server-env";
 
-function buildSettingsRedirect(request: Request, key: "error" | "success", value: string) {
-  const url = new URL("/settings", request.url);
-  url.searchParams.set(key, value);
-  return url;
-}
-
 function buildAuthRedirect(
-  request: Request,
   path: "/login" | "/onboarding",
   key: "message" | "error",
   value: string
 ) {
-  const url = new URL(path, request.url);
-  url.searchParams.set(key, value);
-  return url;
+  return buildGoogleSettingsUrl(key, value, path);
 }
 
 function redirectToSettings(
-  request: Request,
   key: "error" | "success",
   value: string
 ) {
-  return NextResponse.redirect(buildSettingsRedirect(request, key, value));
+  return NextResponse.redirect(buildGoogleSettingsUrl(key, value));
 }
 
 function clearOAuthStateCookie(response: NextResponse) {
@@ -55,10 +46,9 @@ function clearOAuthStateCookie(response: NextResponse) {
   return response;
 }
 
-function invalidStateResponse(request: Request) {
+function invalidStateResponse() {
   return clearOAuthStateCookie(
     redirectToSettings(
-      request,
       "error",
       "Google sign-in could not be verified. Please try connecting Gmail again."
     )
@@ -71,7 +61,6 @@ export async function GET(request: Request) {
   if (authState.status === "signed_out") {
     return NextResponse.redirect(
       buildAuthRedirect(
-        request,
         "/login",
         "message",
         "Please sign in to continue."
@@ -82,7 +71,6 @@ export async function GET(request: Request) {
   if (authState.status === "needs_onboarding") {
     return NextResponse.redirect(
       buildAuthRedirect(
-        request,
         "/onboarding",
         "message",
         "Create your agency workspace to continue."
@@ -92,7 +80,6 @@ export async function GET(request: Request) {
 
   if (!isGoogleGmailConfigured()) {
     return redirectToSettings(
-      request,
       "error",
       "Google Gmail integration is not configured."
     );
@@ -100,7 +87,6 @@ export async function GET(request: Request) {
 
   if (!isTokenEncryptionConfigured()) {
     return redirectToSettings(
-      request,
       "error",
       "TOKEN_ENCRYPTION_KEY is required before connecting Gmail."
     );
@@ -118,7 +104,6 @@ export async function GET(request: Request) {
   if (denied) {
     return clearOAuthStateCookie(
       redirectToSettings(
-        request,
         "error",
         denied === "access_denied"
           ? "Google permission was not granted. No Gmail connection was saved."
@@ -128,13 +113,12 @@ export async function GET(request: Request) {
   }
 
   if (!expectedState || !returnedState || expectedState !== returnedState) {
-    return invalidStateResponse(request);
+    return invalidStateResponse();
   }
 
   if (!code) {
     return clearOAuthStateCookie(
       redirectToSettings(
-        request,
         "error",
         "Google did not return an authorization code."
       )
@@ -173,7 +157,6 @@ export async function GET(request: Request) {
     revalidatePath("/settings");
     return clearOAuthStateCookie(
       redirectToSettings(
-        request,
         "success",
         `Gmail connected as ${connection.email_address}.`
       )
@@ -188,7 +171,6 @@ export async function GET(request: Request) {
 
     return clearOAuthStateCookie(
       redirectToSettings(
-        request,
         "error",
         error instanceof Error
           ? error.message

@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import { DocumentStatusBadge } from "@/components/documents/document-status-badge";
+import { requirementLevel } from "@/lib/checklists/request-logic";
 import type { ExportPacketPreview } from "@/lib/export/create-packet";
 
 function scanTone(status?: string | null) {
@@ -15,18 +18,58 @@ function scanTone(status?: string | null) {
   }
 }
 
+function scanLabel(status?: string | null) {
+  switch (status) {
+    case "scanned":
+      return "Passed";
+    case "scanning":
+    case "needs_review":
+      return "Needs review";
+    case "scan_failed":
+      return "Failed";
+    default:
+      return "Not uploaded";
+  }
+}
+
 export function ExportStatusReport({ preview }: { preview: ExportPacketPreview }) {
   const issueCount = preview.documents.reduce(
     (total, document) => total + (document.document_issues?.length ?? 0),
     0
   );
+  const requestedItems = preview.checklistItems;
+
+  if (!requestedItems.length) {
+    return (
+      <section className="panel section-stack">
+        <div className="section-title">
+          <div>
+            <h2>Packet contents preview</h2>
+            <p>Review the requested student file before generating the ZIP.</p>
+          </div>
+        </div>
+        <div className="empty-state">
+          <strong>No documents requested yet.</strong>
+          <p>
+            Go to Checklist and request the documents you want to collect before
+            exporting.
+          </p>
+          <div className="button-row">
+            <Link className="button secondary" href={`/students/${preview.student.id}/checklist`}>
+              Go to checklist
+            </Link>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="panel section-stack">
       <div className="section-title">
         <div>
           <h2>Packet contents preview</h2>
-          <p>Document status, scan issues, and verification state.</p>
+          <p>Requested documents, upload status, and AI scan results.</p>
         </div>
         <span className={issueCount ? "chip warning" : "chip success"}>
           {issueCount} scan issue{issueCount === 1 ? "" : "s"}
@@ -37,13 +80,13 @@ export function ExportStatusReport({ preview }: { preview: ExportPacketPreview }
           <thead>
             <tr>
               <th>Document</th>
-              <th>Status</th>
-              <th>Scan</th>
+              <th>File status</th>
+              <th>AI scan</th>
               <th>Issues</th>
             </tr>
           </thead>
           <tbody>
-            {preview.checklistItems.map((item) => {
+            {requestedItems.map((item) => {
               const documents = preview.documents.filter(
                 (document) => document.checklist_item?.id === item.id
               );
@@ -56,8 +99,12 @@ export function ExportStatusReport({ preview }: { preview: ExportPacketPreview }
               return (
                 <tr key={item.id}>
                   <td>
-                    <strong>{item.document_name}</strong>
-                    <span>{item.is_required ? "Required" : "Optional"}</span>
+                    <div className="export-document-cell">
+                      <strong>{item.document_name}</strong>
+                      <span className="chip archived">
+                        {requirementLevel(item).charAt(0).toUpperCase() + requirementLevel(item).slice(1)}
+                      </span>
+                    </div>
                   </td>
                   <td>
                     <DocumentStatusBadge status={item.status} />
@@ -65,13 +112,15 @@ export function ExportStatusReport({ preview }: { preview: ExportPacketPreview }
                   <td>
                     {latest ? (
                       <span className={`chip ${scanTone(latest.scan_status)}`}>
-                        {(latest.scan_status || "not_scanned").replaceAll("_", " ")}
+                        {scanLabel(latest.scan_status)}
                       </span>
                     ) : (
-                      <span className="chip info">not uploaded</span>
+                      <span className="chip info">Not uploaded</span>
                     )}
                   </td>
-                  <td>{itemIssues}</td>
+                  <td className="export-issue-copy">
+                    {itemIssues ? `${itemIssues} issue${itemIssues === 1 ? "" : "s"}` : "No issues"}
+                  </td>
                 </tr>
               );
             })}

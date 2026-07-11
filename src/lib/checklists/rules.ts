@@ -80,6 +80,16 @@ function hasValue(value: string | null | undefined, candidates: string[]) {
   return candidates.some((candidate) => source.includes(candidate));
 }
 
+function hasEducationValue(
+  value: string | null | undefined,
+  aliases: string[]
+) {
+  return hasValue(
+    value,
+    aliases.map((alias) => alias.toLowerCase())
+  );
+}
+
 function templateToRule(
   template: DocumentTemplate,
   deadlineDate: string | null | undefined,
@@ -101,10 +111,7 @@ function templateToRule(
     isFuturePhase && selected.requirement_level !== "optional"
       ? "conditional"
       : selected.requirement_level;
-  const defaultRequested =
-    selected.default_requested ??
-    (effectiveRequirement === "required" &&
-      ["profile_academic_file", "financial_sponsor_file"].includes(phase.slug));
+  const defaultRequested = false;
   const appliesFromStage: CaseStage =
     selected.applies_from_stage ??
     ({
@@ -180,14 +187,14 @@ export function buildSmartChecklistRules(input: ChecklistRuleInput): ChecklistRu
   );
 
   if (isBachelor) {
-    if (hasValue(education, ["o-level", "olevel", "cambridge"])) {
+    if (hasEducationValue(education, ["o-level", "olevel", "cambridge"])) {
       addTemplate(items, "olevel_records", input);
       addTemplate(items, "oa_equivalence", input);
     } else {
       addTemplate(items, "matric_records", input);
     }
 
-    if (hasValue(education, ["a-level", "alevel", "cambridge"])) {
+    if (hasEducationValue(education, ["a-level", "alevel", "cambridge"])) {
       addTemplate(items, "alevel_records", input);
       addTemplate(items, "oa_equivalence", input);
     } else {
@@ -310,13 +317,13 @@ export function buildSmartChecklistRules(input: ChecklistRuleInput): ChecklistRu
     );
   }
 
-  if (hasValue(education, ["gap"])) {
+  if (hasEducationValue(education, ["gap"])) {
     addTemplate(items, "gap_explanation", input);
   }
-  if (hasValue(education, ["refusal", "refused"])) {
+  if (hasEducationValue(education, ["refusal", "refused"])) {
     addTemplate(items, "refusal_explanation", input);
   }
-  if (hasValue(education, ["low marks", "backlog"])) {
+  if (hasEducationValue(education, ["low marks", "backlog"])) {
     addTemplate(items, "academic_risk_explanation", input);
   }
 

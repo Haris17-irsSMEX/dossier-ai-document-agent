@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { getAppBaseUrl } from "@/lib/config/app-url";
+import { getPublicAppUrl as getConfiguredPublicAppUrl } from "@/lib/config/app-url";
 
 const requiredString = z
   .string()
@@ -62,8 +62,8 @@ export function getPublicEnv() {
 }
 
 export function getPublicAppUrl() {
-  const env = getPublicEnv();
-  return env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") || getAppBaseUrl();
+  getPublicEnv();
+  return getConfiguredPublicAppUrl();
 }
 
 export function getPublicMobileAppUrl() {

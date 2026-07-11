@@ -6,6 +6,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { writeAuditLog } from "@/lib/actions/audit";
 import { CHECKLIST_PHASES, getChecklistPhase } from "@/lib/checklists/phases";
 import {
+  isActiveChecklistRequest,
   isChecklistReady,
   isMissingActiveRequest,
   isRequested,
@@ -470,18 +471,22 @@ export async function getExportPacketPreview(studentId: string): Promise<ExportP
     throw new Error(verificationResultsError.message);
   }
 
-  const items = (checklistItems ?? []) as ExportChecklistItem[];
-  const docs = (documents ?? []) as unknown as ExportDocument[];
-  const summary = summarizeChecklist(items);
-  const complete = summary.active.filter(isChecklistReady).length;
-  const missingRequired = items.filter(isMissingActiveRequest).length;
+  const allItems = (checklistItems ?? []) as ExportChecklistItem[];
+  const requestedItems = allItems.filter(isActiveChecklistRequest);
+  const requestedItemIds = new Set(requestedItems.map((item) => item.id));
+  const docs = ((documents ?? []) as unknown as ExportDocument[]).filter((document) =>
+    document.checklist_item?.id ? requestedItemIds.has(document.checklist_item.id) : false
+  );
+  const summary = summarizeChecklist(requestedItems);
+  const complete = requestedItems.filter(isChecklistReady).length;
+  const missingRequired = requestedItems.filter(isMissingActiveRequest).length;
   const problemDocuments = docs.filter((document) =>
     isProblemStatus(document.status, document.scan_status)
   ).length;
 
   return {
     student: student as ExportStudent,
-    checklistItems: items,
+    checklistItems: requestedItems,
     documents: docs,
     verificationRequests: (verificationRequests ?? []) as unknown as ExportVerificationRequest[],
     verificationResults: (verificationResults ?? []) as ExportVerificationResult[],

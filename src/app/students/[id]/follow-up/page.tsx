@@ -11,39 +11,8 @@ import { generateFollowUpEmailDraftAction } from "@/lib/actions/email-messages";
 import { getConnectedGmailConnectionForCurrentUser } from "@/lib/integrations/google/gmail-connection";
 import { formatDateTime } from "@/lib/date";
 
-function ItemList({
-  title,
-  items,
-  empty
-}: {
-  title: string;
-  items: Array<{ id?: string; document_name?: string; status?: string; instructions?: string | null; accepted_formats?: string[] | null }>;
-  empty: string;
-}) {
-  return (
-    <section className="panel compact">
-      <h2>{title}</h2>
-      {items.length ? (
-        <div className="list">
-          {items.map((item) => (
-            <div className="list-item" key={item.id || item.document_name}>
-              <div>
-                <strong>{item.document_name}</strong>
-                <span>{item.instructions || "No consultant instructions."}</span>
-              </div>
-              <span className="chip warning">
-                {(item.status || "needs_review").replaceAll("_", " ")}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="empty-state compact-empty">
-          <strong>{empty}</strong>
-        </div>
-      )}
-    </section>
-  );
+function formatCount(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 export default async function StudentFollowUpPage({
@@ -76,11 +45,24 @@ export default async function StudentFollowUpPage({
     verificationRequests: data.verificationRequests
   });
   const whatsappProvider = data.whatsappProvider;
-  const verificationRequired = data.verificationRequests.filter((request) =>
-    ["required", "pending", "failed", "suspicious", "manual_review", "api_not_connected"].includes(
-      request.status
-    )
-  );
+  const uploadExpiryLabel = data.latestUploadToken?.expires_at
+    ? formatDateTime(data.latestUploadToken.expires_at)
+    : null;
+  const uploadStatus = !data.latestUploadToken
+    ? {
+        tone: "archived" as const,
+        label: "Not generated yet",
+        detail: null
+      }
+    : {
+        tone: "success" as const,
+        label: "Ready",
+        detail: uploadExpiryLabel ? `Expires ${uploadExpiryLabel}` : null
+      };
+  const whatsappCount =
+    whatsappProvider === "manual_handoff"
+      ? data.manualHandoffs.length
+      : data.messages.length;
 
   return (
     <main className="app-shell">
@@ -95,68 +77,50 @@ export default async function StudentFollowUpPage({
           }
         />
         <StudentTabs active="follow-up" studentId={id} />
-        <section className="metrics">
-          <div className="metric">
-            <strong>{data.student.phone || "-"}</strong>
-            <span>Student phone</span>
+        <section className="panel reminder-setup-bar" aria-label="Reminder setup">
+          <div className="reminder-setup-heading">
+            <h2>Reminder setup</h2>
           </div>
-          <div className="metric">
-            <strong>
-              {data.latestUploadToken
-                ? formatDateTime(data.latestUploadToken.expires_at) || "Active"
-                : "No active link"}
-            </strong>
-            <span>Upload link expiry</span>
-          </div>
-          <div className="metric">
-            <strong>
-              {whatsappProvider === "manual_handoff"
-                ? data.manualHandoffs.length
-                : data.messages.length}
-            </strong>
-            <span>
-              {whatsappProvider === "manual_handoff"
-                ? "WhatsApp handoffs"
-                : "WhatsApp messages"}
-            </span>
-          </div>
-        </section>
-        <div className="dashboard">
-          <ItemList
-            title="Missing documents"
-            items={data.buckets.missing}
-            empty="No missing documents."
-          />
-          <ItemList
-            title="Wrong, blurry, or needs review"
-            items={data.buckets.problem}
-            empty="No problem documents."
-          />
-        </div>
-        <section className="panel compact">
-          <h2>Verification required</h2>
-          {verificationRequired.length ? (
-            <div className="list">
-              {verificationRequired.map((request) => (
-                <div className="list-item" key={request.id}>
-                  <div>
-                    <strong>{request.provider?.name || "Manual verification"}</strong>
-                    <span>{request.instructions || "Tracked manually. API not connected."}</span>
-                  </div>
-                  <span className="chip warning">{request.status.replaceAll("_", " ")}</span>
-                </div>
-              ))}
+          <div className="reminder-setup-grid">
+            <div className="reminder-setup-item">
+              <span className="reminder-setup-label">Student</span>
+              <div className="reminder-setup-contact">
+                <strong>{data.student.phone || "No phone added"}</strong>
+                <span>{data.student.email || "No email added"}</span>
+              </div>
             </div>
-          ) : (
-            <div className="empty-state compact-empty">
-              <strong>No verification reminders needed.</strong>
+            <div className="reminder-setup-item">
+              <span className="reminder-setup-label">Upload link</span>
+              <div className="reminder-setup-value">
+                <span className={`chip ${uploadStatus.tone}`}>
+                  {uploadStatus.label}
+                </span>
+                {uploadStatus.detail ? <strong>{uploadStatus.detail}</strong> : null}
+              </div>
             </div>
-          )}
+            <div className="reminder-setup-item">
+              <span className="reminder-setup-label">WhatsApp</span>
+              <div className="reminder-setup-value">
+                <span className="chip archived">
+                  {formatCount(whatsappCount, "handoff", "handoffs")}
+                </span>
+              </div>
+            </div>
+            <div className="reminder-setup-item">
+              <span className="reminder-setup-label">Email</span>
+              <div className="reminder-setup-value">
+                <span className="chip archived">
+                  {formatCount(data.emailMessages.length, "sent", "sent")}
+                </span>
+              </div>
+            </div>
+          </div>
         </section>
         <FollowUpMessageGenerator
           gmailConnectedEmail={gmailConnection?.email_address || null}
           hasActiveUploadToken={Boolean(data.latestUploadToken)}
           initialBody={initialBody}
+          initialUploadExpiresAt={data.latestUploadToken?.expires_at || null}
           initialUploadLink={null}
           initialEmailSubject={
             initialEmailDraft.ok ? initialEmailDraft.subject : ""

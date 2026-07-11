@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { getAuthProfileState } from "@/lib/auth/require-profile";
+import { getRoleLandingPath } from "@/lib/auth/role-utils";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const credentialsSchema = z.object({
@@ -32,7 +33,7 @@ export async function loginAction(formData: FormData) {
   const state = await getAuthProfileState();
 
   if (state.status === "ready") {
-    redirect("/dashboard");
+    redirect(getRoleLandingPath(state.profile.role));
   }
 
   redirect("/onboarding?message=Create%20your%20agency%20workspace%20to%20continue.");
@@ -49,6 +50,15 @@ export async function signupAction(formData: FormData) {
   const { error } = await supabase.auth.signUp(parsed.data);
 
   if (error) {
+    const message = error.message.toLowerCase();
+
+    if (message.includes("already") || message.includes("registered")) {
+      redirectAuthError(
+        "/signup",
+        "This email has already been invited. Open your invite link to set your password."
+      );
+    }
+
     redirectAuthError("/signup", error.message);
   }
 

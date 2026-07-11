@@ -6,14 +6,32 @@ import { ExtractionView } from "@/components/documents/extraction-view";
 import { ScanDocumentButton } from "@/components/documents/scan-document-button";
 import { StudentTabs } from "@/components/students/student-tabs";
 import { PageHeader } from "@/components/ui/page-header";
-import { updateChecklistStatusAction } from "@/lib/actions/checklists";
+import {
+  listChecklistItems,
+  listRequestedChecklistItems
+} from "@/lib/actions/checklists";
 import {
   listStudentDocuments,
   updateDocumentStatusAction
 } from "@/lib/actions/documents";
-import { listChecklistItems } from "@/lib/actions/checklists";
 import { getStudent } from "@/lib/actions/students";
-import { checklistStatuses } from "@/lib/checklists/rules";
+import {
+  hasUploadedChecklistFile,
+  isChecklistReady,
+  needsChecklistReview
+} from "@/lib/checklists/request-logic";
+
+const reviewStatuses = [
+  "accepted",
+  "needs_review",
+  "wrong_document",
+  "wrong_format",
+  "blurry",
+  "expired",
+  "rejected",
+  "official_verification_required",
+  "officially_verified"
+] as const;
 
 const scanStatusTone: Record<string, string> = {
   not_scanned: "info",
@@ -50,18 +68,45 @@ export default async function StudentDocumentsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [student, items, documents] = await Promise.all([
+  const [student, requestedItems, allItems, documents] = await Promise.all([
     getStudent(id),
+    listRequestedChecklistItems(id),
     listChecklistItems(id),
     listStudentDocuments(id)
   ]);
+
+  const uploadsByChecklistItemId = new Map<string, typeof documents>();
+
+  for (const document of documents) {
+    const current = uploadsByChecklistItemId.get(document.checklist_item_id) || [];
+    current.push(document);
+    uploadsByChecklistItemId.set(document.checklist_item_id, current);
+  }
+
+  const historicalItems = allItems.filter((item) => {
+    if (item.is_requested === true && item.visible_to_student === true && item.is_archived !== true) {
+      return false;
+    }
+
+    return (uploadsByChecklistItemId.get(item.id)?.length || 0) > 0;
+  });
+
+  const requestedSummary = {
+    total: requestedItems.length,
+    missing: requestedItems.filter((item) => (item.status || "missing") === "missing").length,
+    uploaded: requestedItems.filter(hasUploadedChecklistFile).length,
+    ready: requestedItems.filter(isChecklistReady).length,
+    needsReview: requestedItems.filter(needsChecklistReview).length
+  };
+
+  const visibleItems = [...requestedItems, ...historicalItems];
 
   return (
     <main className="app-shell">
       <div className="workspace section-stack">
         <PageHeader
           title={student.full_name}
-          subtitle="Review uploads and update document status."
+          subtitle="Review uploaded files and update their status."
           actions={
             <Link className="button secondary" href={`/students/${id}`}>
               Student profile
@@ -69,91 +114,151 @@ export default async function StudentDocumentsPage({
           }
         />
         <StudentTabs active="documents" studentId={id} />
-        <section className="panel">
-          <h2>Checklist statuses</h2>
-          <div className="list">
-            {items.map((item) => (
-              <form action={updateChecklistStatusAction} className="status-row" key={item.id}>
-                <input type="hidden" name="id" value={item.id} />
-                <input type="hidden" name="student_id" value={id} />
-                <strong>{item.document_name}</strong>
-                <DocumentStatusBadge status={item.status} />
-                <select name="status" defaultValue={item.status}>
-                  {checklistStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {status.replaceAll("_", " ")}
-                    </option>
-                  ))}
-                </select>
-                <button className="button secondary" type="submit">
-                  Update
-                </button>
-              </form>
-            ))}
-          </div>
-        </section>
-        <section className="panel">
-          <h2>Uploaded files</h2>
-          {documents.length ? (
-            <div className="document-review-list">
-              {documents.map((document) => {
-                const latestExtraction = latestByCreatedAt(document.document_extractions);
-                const issues = document.document_issues ?? [];
+
+        {!requestedItems.length ? (
+          <section className="panel empty-state">
+            <strong>No documents requested yet</strong>
+            <p>
+              Go to the Checklist tab and request the documents you want to collect
+              from this student.
+            </p>
+            <Link className="button" href={`/students/${id}/checklist`}>
+              Go to checklist
+            </Link>
+          </section>
+        ) : null}
+
+        {requestedItems.length ? (
+          <section className="metric-grid case-metrics">
+            <div className="metric-card">
+              <span>Requested</span>
+              <strong>{requestedSummary.total}</strong>
+            </div>
+            <div className="metric-card">
+              <span>Missing</span>
+              <strong>{requestedSummary.missing}</strong>
+            </div>
+            <div className="metric-card">
+              <span>Uploaded</span>
+              <strong>{requestedSummary.uploaded}</strong>
+            </div>
+            <div className="metric-card">
+              <span>Needs review</span>
+              <strong>{requestedSummary.needsReview}</strong>
+            </div>
+            <div className="metric-card">
+              <span>Ready</span>
+              <strong>{requestedSummary.ready}</strong>
+            </div>
+          </section>
+        ) : null}
+
+        {visibleItems.length ? (
+          <section className="panel section-stack">
+            <div className="section-title">
+              <div>
+                <h2>Requested documents</h2>
+                <p>Review uploaded files and update their status.</p>
+              </div>
+            </div>
+
+            <div className="document-requested-list">
+              {visibleItems.map((item) => {
+                const itemDocuments = uploadsByChecklistItemId.get(item.id) || [];
+                const latestDocument = latestByCreatedAt(itemDocuments);
+                const latestExtraction = latestDocument
+                  ? latestByCreatedAt(latestDocument.document_extractions)
+                  : null;
+                const issues = latestDocument?.document_issues ?? [];
+                const hasUploads = itemDocuments.length > 0;
+                const isHistoricalOnly = !requestedItems.some(
+                  (requestedItem) => requestedItem.id === item.id
+                );
+                const currentStatus = latestDocument?.status || item.status || "missing";
 
                 return (
-                  <article className="document-review-card" key={document.id}>
+                  <article className="document-review-card" key={item.id}>
                     <div className="section-title">
                       <div>
-                        <h3>{document.original_filename}</h3>
+                        <h3>{item.document_name}</h3>
                         <p>
-                          {document.checklist_item?.document_name}
-                          {document.document_part?.part_name ? ` - ${document.document_part.part_name}` : ""}
+                          {hasUploads
+                            ? `${itemDocuments.length} upload${itemDocuments.length === 1 ? "" : "s"}`
+                            : "No upload yet"}
                         </p>
                       </div>
                       <div className="button-row">
-                        <DocumentStatusBadge status={document.status} />
-                        <ScanStatusBadge status={document.scan_status} />
-                        <ScanDocumentButton
-                          documentId={document.id}
-                          scanStatus={document.scan_status}
-                        />
+                        {isHistoricalOnly ? (
+                          <span className="chip info">Not currently requested</span>
+                        ) : null}
+                        <DocumentStatusBadge status={currentStatus} />
+                        {latestDocument ? (
+                          <ScanStatusBadge status={latestDocument.scan_status} />
+                        ) : null}
                       </div>
                     </div>
-                    <form action={updateDocumentStatusAction} className="inline-status-form">
-                      <input type="hidden" name="id" value={document.id} />
-                      <input type="hidden" name="student_id" value={id} />
-                      <select name="status" defaultValue={document.status}>
-                        {checklistStatuses.map((status) => (
-                          <option key={status} value={status}>
-                            {status.replaceAll("_", " ")}
-                          </option>
-                        ))}
-                      </select>
-                      <button className="button secondary" type="submit">
-                        Save manual status
-                      </button>
-                    </form>
-                    <div className="document-evidence-grid">
-                      <div>
-                        <h4>Extracted evidence</h4>
-                        <ExtractionView extraction={latestExtraction} />
+
+                    {!hasUploads ? (
+                      <div className="document-missing-panel">
+                        <div>
+                          <strong>Missing</strong>
+                          <p>Waiting for student upload.</p>
+                        </div>
+                        <div className="button-row">
+                          <Link className="button secondary" href={`/students/${id}/checklist`}>
+                            Stop requesting
+                          </Link>
+                          <Link className="button secondary" href={`/students/${id}/follow-up`}>
+                            Send follow-up
+                          </Link>
+                        </div>
                       </div>
-                      <div>
-                        <h4>Issues</h4>
-                        <DocumentIssuesList issues={issues} />
-                      </div>
-                    </div>
+                    ) : latestDocument ? (
+                      <>
+                        <div className="document-upload-meta">
+                          <span>{latestDocument.original_filename}</span>
+                          <div className="button-row">
+                            <Link className="button secondary compact-button" href={`/students/${id}/checklist`}>
+                              View uploads
+                            </Link>
+                            <ScanDocumentButton
+                              documentId={latestDocument.id}
+                              scanStatus={latestDocument.scan_status}
+                            />
+                          </div>
+                        </div>
+                        <form action={updateDocumentStatusAction} className="inline-status-form">
+                          <input type="hidden" name="id" value={latestDocument.id} />
+                          <input type="hidden" name="student_id" value={id} />
+                          <select name="status" defaultValue={latestDocument.status}>
+                            {reviewStatuses.map((status) => (
+                              <option key={status} value={status}>
+                                {status.replaceAll("_", " ")}
+                              </option>
+                            ))}
+                          </select>
+                          <button className="button secondary" type="submit">
+                            Save review status
+                          </button>
+                        </form>
+                        <div className="document-evidence-grid">
+                          <div>
+                            <h4>Extracted evidence</h4>
+                            <ExtractionView extraction={latestExtraction || undefined} />
+                          </div>
+                          <div>
+                            <h4>Issues</h4>
+                            <DocumentIssuesList issues={issues} />
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
                   </article>
                 );
               })}
             </div>
-          ) : (
-            <div className="empty-state">
-              <strong>No uploads yet</strong>
-              <p>Generate an upload link from the checklist page.</p>
-            </div>
-          )}
-        </section>
+          </section>
+        ) : null}
       </div>
     </main>
   );

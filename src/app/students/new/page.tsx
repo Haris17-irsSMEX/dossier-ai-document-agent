@@ -2,15 +2,21 @@ import Link from "next/link";
 
 import { StudentForm } from "@/components/students/student-form";
 import { PageHeader } from "@/components/ui/page-header";
-import { listConsultants } from "@/lib/actions/students";
+import { getCurrentProfile, listConsultants } from "@/lib/actions/students";
+import { isAgencyAdmin, isPlatformAdmin } from "@/lib/auth/roles";
 
 export default async function NewStudentPage({
   searchParams
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const consultants = await listConsultants();
+  const [consultants, profile] = await Promise.all([
+    listConsultants(),
+    getCurrentProfile()
+  ]);
   const params = await searchParams;
+  const canAssignCounselor =
+    Boolean(profile && (isAgencyAdmin(profile) || isPlatformAdmin(profile)));
 
   return (
     <main className="app-shell">
@@ -25,7 +31,11 @@ export default async function NewStudentPage({
           }
         />
         <section className="panel">
-          <StudentForm consultants={consultants} error={params.error} />
+          <StudentForm
+            canAssignCounselor={canAssignCounselor}
+            consultants={consultants}
+            error={params.error}
+          />
         </section>
       </div>
     </main>

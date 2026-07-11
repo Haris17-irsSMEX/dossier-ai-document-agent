@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { QRCodeSVG } from "qrcode.react";
 
 import {
   createWhatsAppUploadLinkAction,
@@ -31,13 +32,26 @@ const messageTypes: Array<{ value: MessageType; label: string }> = [
   { value: "file_complete", label: "File complete" }
 ];
 
-function requiresUploadLink(messageType: MessageType) {
-  return messageType === "upload_link";
-}
-
 const UPLOAD_LINK_LABEL = "Upload your documents here:";
 const EMAIL_UPLOAD_LINK_LABEL = "Upload link:";
 const UPLOAD_URL_PATTERN = /https?:\/\/[^\s]+\/upload\/[A-Za-z0-9_-]+/gi;
+
+function formatUploadExpiry(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date).replace(",", "");
+}
 
 function normalizeBody(value: string) {
   return value.replace(/\r\n/g, "\n");
@@ -166,13 +180,13 @@ export function FollowUpMessageGenerator({
   studentId,
   initialBody,
   initialUploadLink,
+  initialUploadExpiresAt,
   hasActiveUploadToken,
   studentEmail,
   studentPhone,
   gmailConnectedEmail,
   whatsappProvider,
   consultantWhatsAppNumber,
-  consultantDisplayName,
   communicationSettingsError,
   latestManualHandoffId,
   initialEmailSubject,
@@ -181,6 +195,7 @@ export function FollowUpMessageGenerator({
   studentId: string;
   initialBody: string;
   initialUploadLink?: string | null;
+  initialUploadExpiresAt?: string | null;
   hasActiveUploadToken?: boolean;
   studentEmail?: string | null;
   studentPhone?: string | null;
@@ -200,16 +215,19 @@ export function FollowUpMessageGenerator({
       ? syncMessageWithUploadLink(initialBody, initialUploadLink)
       : initialBody
   );
+  const [uploadLinkStatus, setUploadLinkStatus] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [emailStatus, setEmailStatus] = useState<string | null>(null);
   const [emailStatusTone, setEmailStatusTone] = useState<"info" | "success" | "error">("info");
   const [lastHandoffId, setLastHandoffId] = useState(latestManualHandoffId || "");
+  const [uploadExpiresAt, setUploadExpiresAt] = useState(initialUploadExpiresAt || "");
   const [emailSubject, setEmailSubject] = useState(initialEmailSubject || "");
   const [emailBody, setEmailBody] = useState(() =>
     initialUploadLink
       ? syncEmailBodyWithUploadLink(initialEmailBody || "", initialUploadLink)
       : initialEmailBody || ""
   );
+  const [renderedAt] = useState(() => Date.now());
   const [isPending, startTransition] = useTransition();
   const canSend = body.trim().length > 0;
   const canSendEmail = emailSubject.trim().length > 0 && emailBody.trim().length > 0;
@@ -219,7 +237,6 @@ export function FollowUpMessageGenerator({
   const hasValidStudentEmail = Boolean(
     studentEmail?.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(studentEmail.trim())
   );
-  const needsUploadLink = requiresUploadLink(messageType);
   const phoneValidation = studentPhone?.trim()
     ? validateWhatsAppNumber(studentPhone)
     : {
@@ -229,7 +246,7 @@ export function FollowUpMessageGenerator({
   const whatsappUrl =
     manualAvailable &&
     canSend &&
-    (!needsUploadLink || Boolean(uploadLink)) &&
+    Boolean(uploadLink) &&
     phoneValidation.ok
       ? buildWhatsAppHandoffUrl(phoneValidation.normalized, body)
       : null;
@@ -239,27 +256,37 @@ export function FollowUpMessageGenerator({
     ? `+${phoneValidation.normalized}`
     : null;
   const uploadLinkIsLocal = uploadLink ? isPrivateOrLocalUrl(uploadLink) : false;
+  const uploadLinkExpired = Boolean(
+    uploadExpiresAt && new Date(uploadExpiresAt).getTime() <= renderedAt
+  );
   const messageHasLatestUploadLink = uploadLink ? body.includes(uploadLink) : false;
   const emailHasLatestUploadLink = uploadLink ? emailBody.includes(uploadLink) : false;
+  const hasUploadLink = Boolean(uploadLink);
+  const generateUploadLinkLabel =
+    !hasUploadLink && hasActiveUploadToken ? "Refresh link" : "Generate upload link";
 
   function generateUploadLink() {
-    setStatus(null);
+    setUploadLinkStatus(null);
     startTransition(async () => {
       const result = await createWhatsAppUploadLinkAction({ studentId });
 
       if (!result.ok) {
-        setStatus(`Upload link failed: ${result.error}`);
+        setUploadLinkStatus(`Upload link failed: ${result.error}`);
         return;
       }
 
+      const hadLink = Boolean(uploadLink);
       setUploadLink(result.uploadLink);
+      setUploadExpiresAt(result.expiresAt);
       setBody((current) => syncMessageWithUploadLink(current, result.uploadLink));
       setEmailBody((current) =>
         current.trim()
           ? syncEmailBodyWithUploadLink(current, result.uploadLink)
           : current
       );
-      setStatus("Upload link updated in message.");
+      setUploadLinkStatus(
+        hadLink ? "Link refreshed and added to message." : "Upload link ready."
+      );
     });
   }
 
@@ -271,7 +298,7 @@ export function FollowUpMessageGenerator({
         messageType,
         uploadLink
       });
-      setBody(draft.body);
+      setBody(uploadLink ? syncMessageWithUploadLink(draft.body, uploadLink) : draft.body);
       setStatus(`Draft generated by ${draft.source}.`);
     });
   }
@@ -292,7 +319,9 @@ export function FollowUpMessageGenerator({
       }
 
       setEmailSubject(draft.subject);
-      setEmailBody(draft.body);
+      setEmailBody(
+        uploadLink ? syncEmailBodyWithUploadLink(draft.body, uploadLink) : draft.body
+      );
       setEmailStatusTone("success");
       setEmailStatus("Email draft generated.");
     });
@@ -366,6 +395,20 @@ export function FollowUpMessageGenerator({
     } catch {
       setEmailStatusTone("error");
       setEmailStatus("Copy failed. Select the email draft and copy it manually.");
+    }
+  }
+
+  async function copyUploadLink() {
+    if (!uploadLink) {
+      setUploadLinkStatus("Generate an upload link first.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(uploadLink);
+      setUploadLinkStatus("Link copied.");
+    } catch {
+      setUploadLinkStatus("Copy failed. Copy the upload link manually.");
     }
   }
 
@@ -465,49 +508,145 @@ export function FollowUpMessageGenerator({
   }
 
   return (
-    <section className="panel section-stack">
-      <div className="section-title">
-        <div>
-          <h2>WhatsApp follow-up</h2>
-          <p>
-            {isManualHandoff
-              ? "Generate a ready message, open the student chat, and send it manually from your own WhatsApp account."
-              : "Generate a polite draft, edit it, then send through Twilio."}
-          </p>
-        </div>
-      </div>
-
-      {hasActiveUploadToken && !uploadLink ? (
-        <div className="alert info">
-          An active upload token exists, but the raw link is only shown when it is generated.
-          Generate a new link to send it on WhatsApp.
-        </div>
-      ) : null}
-
-      {communicationSettingsError ? (
-        <div className="alert error">{communicationSettingsError}</div>
-      ) : null}
-
-      {uploadLink && uploadLinkIsLocal ? (
-        <div className="alert info">
-          This upload link is local. It works only on your Wi-Fi/network. For
-          real students, use a deployed domain or ngrok/Cloudflare Tunnel.
-        </div>
-      ) : null}
-
-      {isManualHandoff && !consultantWhatsAppNumber ? (
-        <div className="alert info">
-          Your WhatsApp number is not saved in settings. Manual handoff still works,
-          but Dossier cannot confirm your preferred sending number.
-          <div className="button-row">
-            <Link className="button secondary" href="/settings">
-              Open settings
-            </Link>
+    <div className="section-stack">
+      <section className="panel section-stack">
+        <div className="section-title">
+          <div>
+            <h2>Upload link</h2>
+            <p>Generate a secure upload link before sending reminders.</p>
           </div>
         </div>
-      ) : null}
 
-      <div className="form-grid two">
+        <div className="upload-link-status-line">
+          <span className="reminder-setup-label">Status</span>
+          <div className="upload-link-status-value">
+            <span className={`chip ${uploadLinkExpired ? "warning" : hasUploadLink ? "success" : "archived"}`}>
+              {uploadLinkExpired ? "Expired" : hasUploadLink ? "Ready" : "Not generated yet"}
+            </span>
+            <strong>
+              {hasUploadLink && uploadExpiresAt
+                ? `Expires ${formatUploadExpiry(uploadExpiresAt)}`
+                : !hasUploadLink && hasActiveUploadToken
+                  ? "Generate a fresh link to copy or preview it."
+                  : null}
+            </strong>
+          </div>
+        </div>
+
+        {hasUploadLink ? (
+          <label className="upload-link-field">
+            <span>Current link</span>
+            <div className="upload-link-input-row">
+              <input
+                readOnly
+                value={uploadLink}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+              <button
+                className="button"
+                disabled={uploadLinkExpired || isPending}
+                type="button"
+                onClick={copyUploadLink}
+              >
+                Copy link
+              </button>
+            </div>
+          </label>
+        ) : null}
+
+        {!hasUploadLink ? (
+          <div className="button-row">
+            <button
+              className="button"
+              disabled={isPending}
+              type="button"
+              onClick={generateUploadLink}
+            >
+              {generateUploadLinkLabel}
+            </button>
+          </div>
+        ) : (
+          <div className="button-row">
+            {hasUploadLink ? (
+              <a
+                className="button secondary"
+                href={uploadLink}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                Preview portal
+              </a>
+            ) : null}
+            <button
+              className={uploadLinkExpired ? "button" : "button secondary"}
+              disabled={isPending}
+              type="button"
+              onClick={generateUploadLink}
+            >
+              Refresh link
+            </button>
+          </div>
+        )}
+
+        {uploadLinkIsLocal ? (
+          <p className="muted">
+            This is a local testing link. It only works on this Wi-Fi/network.
+          </p>
+        ) : null}
+
+        {hasUploadLink ? (
+          <details className="advanced-settings-disclosure">
+            <summary>More ways to share</summary>
+            <div className="qr-card" aria-label="Upload portal QR code">
+              <strong>Show QR code</strong>
+              <QRCodeSVG
+                value={uploadLink}
+                size={140}
+                level="M"
+                marginSize={2}
+                title="Upload portal QR code"
+              />
+              <span className="muted">
+                Scan this QR code to open the upload portal on a phone.
+              </span>
+              <span className="muted">
+                Phone must be on the same Wi-Fi for local testing.
+              </span>
+            </div>
+          </details>
+        ) : null}
+
+        {uploadLinkStatus ? <div className="alert info">{uploadLinkStatus}</div> : null}
+      </section>
+
+      <section className="panel section-stack">
+        <div className="section-title">
+          <div>
+            <h2>WhatsApp follow-up</h2>
+            <p>
+              {isManualHandoff
+                ? "Open WhatsApp with a ready message and send it manually."
+                : "Generate a polite draft, edit it, then send through Twilio."}
+            </p>
+          </div>
+        </div>
+
+        {!hasUploadLink ? (
+          <div className="alert info">
+            Generate an upload link before opening WhatsApp.
+          </div>
+        ) : null}
+
+        {communicationSettingsError ? (
+          <div className="alert error">{communicationSettingsError}</div>
+        ) : null}
+
+        {isManualHandoff && !consultantWhatsAppNumber ? (
+          <p className="muted">
+            Your WhatsApp number is not saved in settings. Manual handoff still works.
+          </p>
+        ) : null}
+
         <label>
           Message type
           <select
@@ -521,300 +660,253 @@ export function FollowUpMessageGenerator({
             ))}
           </select>
         </label>
-        <label>
-          Upload link
-          <input
-            readOnly
-            placeholder="Generate a secure upload link"
-            value={uploadLink}
-          />
-          <span className="muted">
-            {uploadLink && messageHasLatestUploadLink
-              ? "Current upload link is included in the WhatsApp message."
-              : "Generate an upload link to include it in the WhatsApp message."}
-          </span>
-        </label>
-      </div>
 
-      {uploadLink && !messageHasLatestUploadLink ? (
-        <div className="alert info">
-          This message does not include the latest upload link.
-          <div className="button-row">
-            <button
-              className="button secondary"
-              disabled={isPending}
-              type="button"
-              onClick={insertLatestUploadLink}
-            >
-              Insert latest upload link
-            </button>
+        {hasUploadLink && !messageHasLatestUploadLink ? (
+          <div className="alert info">
+            This message does not include the latest upload link.
+            <div className="button-row">
+              <button
+                className="button secondary"
+                disabled={isPending}
+                type="button"
+                onClick={insertLatestUploadLink}
+              >
+                Insert latest upload link
+              </button>
+            </div>
           </div>
-        </div>
-      ) : null}
-
-      <div className="button-row">
-        <button
-          className="button secondary"
-          disabled={isPending}
-          type="button"
-          onClick={generateUploadLink}
-        >
-          {uploadLink ? "Regenerate upload link" : "Generate upload link"}
-        </button>
-        <button
-          className="button secondary"
-          disabled={isPending}
-          type="button"
-          onClick={generateDraft}
-        >
-          {isPending ? "Working..." : body ? "Regenerate message" : "Generate message"}
-        </button>
-      </div>
-
-      <label>
-        Editable WhatsApp message
-        <textarea
-          className="message-box"
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          rows={10}
-        />
-      </label>
-
-      {status ? <div className="alert info">{status}</div> : null}
-
-      {isManualHandoff ? (
-        <div className="panel compact">
-          <span className="eyebrow">WhatsApp preview</span>
-          {phonePreview ? (
-            <>
-              <strong>WhatsApp will open chat with: {phonePreview}</strong>
-              <p className="muted">
-                Student WhatsApp: {phonePreview}
-              </p>
-            </>
-          ) : (
-            <p className="muted">Add a valid student WhatsApp number first.</p>
-          )}
-        </div>
-      ) : null}
-
-      <div className="button-row">
-        <button
-          className="button secondary"
-          disabled={!canSend || isPending}
-          type="button"
-          onClick={copyMessage}
-        >
-          Copy message
-        </button>
-
-        {isManualHandoff ? (
-          <button
-            className="button secondary"
-            disabled={!whatsappUrl || isPending}
-            type="button"
-            onClick={copyWhatsAppLink}
-          >
-            Copy WhatsApp link
-          </button>
         ) : null}
 
+        <div className="button-row">
+          <button
+            className="button secondary"
+            disabled={isPending}
+            type="button"
+            onClick={generateDraft}
+          >
+            {isPending ? "Working..." : body ? "Regenerate message" : "Generate message"}
+          </button>
+        </div>
+
+        <label>
+          Editable WhatsApp message
+          <textarea
+            className="message-box"
+            value={body}
+            onChange={(event) => setBody(event.target.value)}
+            rows={10}
+          />
+        </label>
+
+        {status ? <div className="alert info">{status}</div> : null}
+
         {isManualHandoff ? (
-          <>
-            {canOpenManual && whatsappUrl && !isPending ? (
-              <a
-                className="button"
-                href={whatsappUrl}
-                rel="noopener noreferrer"
-                target="_blank"
-                onClick={logManualWhatsAppOpen}
-              >
-                Open in WhatsApp
-              </a>
+          <div className="panel compact">
+            <span className="eyebrow">WhatsApp preview</span>
+            {phonePreview ? (
+              <>
+                <strong>WhatsApp will open chat with: {phonePreview}</strong>
+                <p className="muted">
+                  Messages open in your own WhatsApp account. Student chat uses the student phone number.
+                </p>
+              </>
             ) : (
-              <button
-                className="button"
-                disabled
-                type="button"
-                onClick={() => {
-                  setStatus(
-                    !phoneValidation.ok
-                      ? phoneValidation.error
-                      : !canSend
-                        ? "Generate a message first."
-                        : "Generate an upload link first."
-                  );
-                }}
-              >
-                {isPending ? "Opening..." : "Open in WhatsApp"}
-              </button>
+              <p className="muted">Add a valid student WhatsApp number first.</p>
             )}
+          </div>
+        ) : null}
+
+        <div className="button-row">
+          <button
+            className="button secondary"
+            disabled={!canSend || isPending}
+            type="button"
+            onClick={copyMessage}
+          >
+            Copy message
+          </button>
+
+          {isManualHandoff ? (
             <button
               className="button secondary"
-              disabled={!canMarkSent || isPending}
+              disabled={!whatsappUrl || isPending}
               type="button"
-              onClick={markAsSent}
+              onClick={copyWhatsAppLink}
             >
-              {isPending ? "Saving..." : "Mark as sent"}
+              Copy WhatsApp link
             </button>
-          </>
-        ) : (
-          <SendWhatsAppButton
-            disabled={!canSend}
-            isPending={isPending}
-            onSend={sendMessage}
-          />
-        )}
+          ) : null}
 
-      </div>
-
-      {isManualHandoff ? (
-        <p className="muted">
-          Student chat links always use the student&apos;s phone number. Your saved
-          WhatsApp number is used only for display, warnings, and the optional signature.
-          {consultantDisplayName ? ` Current sender name: ${consultantDisplayName}.` : ""}
-        </p>
-      ) : (
-        <p className="muted">
-          Sandbox/testing mode: messages are sent using Twilio Sandbox.
-          Production agency-owned sender will be added later.
-        </p>
-      )}
-
-      {!studentPhone ? (
-        <p className="muted">Add a valid student WhatsApp number first.</p>
-      ) : !phoneValidation.ok ? (
-        <p className="muted">{phoneValidation.error}</p>
-      ) : null}
-      {needsUploadLink && !uploadLink ? (
-        <p className="muted">Generate an upload link first.</p>
-      ) : null}
-      {isManualHandoff && communicationSettingsError ? (
-        <p className="muted">
-          Manual WhatsApp handoff will be available after the communication tables are ready.
-        </p>
-      ) : null}
-      <div className="section-title">
-        <div>
-          <h2>Email follow-up</h2>
-          <p>
-            Generate a follow-up draft and send it from your connected Gmail or
-            Google Workspace mailbox.
-          </p>
+          {isManualHandoff ? (
+            <>
+              {canOpenManual && whatsappUrl && !isPending ? (
+                <a
+                  className="button"
+                  href={whatsappUrl}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                  onClick={logManualWhatsAppOpen}
+                >
+                  Open in WhatsApp
+                </a>
+              ) : (
+                <button className="button" disabled type="button">
+                  {isPending ? "Opening..." : "Open in WhatsApp"}
+                </button>
+              )}
+              <button
+                className="button secondary"
+                disabled={!hasUploadLink || !canMarkSent || isPending}
+                type="button"
+                onClick={markAsSent}
+              >
+                {isPending ? "Saving..." : "Mark as sent"}
+              </button>
+            </>
+          ) : (
+            <SendWhatsAppButton
+              disabled={!canSend || !hasUploadLink}
+              isPending={isPending}
+              onSend={sendMessage}
+            />
+          )}
         </div>
-      </div>
 
-      {!gmailConnected ? (
-        <div className="alert info">
-          Connect Gmail in Communication Settings first.
-          <div className="button-row">
-            <Link className="button secondary" href="/settings">
-              Open settings
-            </Link>
+        {!studentPhone ? (
+          <p className="muted">Add a valid student WhatsApp number first.</p>
+        ) : !phoneValidation.ok ? (
+          <p className="muted">{phoneValidation.error}</p>
+        ) : null}
+      </section>
+
+      <section className="panel section-stack">
+        <div className="section-title">
+          <div>
+            <h2>Email follow-up</h2>
+            <p>Send document reminders from your connected Gmail mailbox.</p>
           </div>
         </div>
-      ) : (
-        <div className="alert success">
-          Gmail connected as {gmailConnectedEmail}.
-        </div>
-      )}
 
-      {emailStatus ? (
-        <div className={`alert ${emailStatusTone}`}>
-          {emailStatus}
-        </div>
-      ) : null}
+        {!gmailConnected ? (
+          <div className="alert info">
+            Connect Gmail in Settings to send from your own mailbox.
+            <div className="button-row">
+              <Link className="button secondary" href="/settings">
+                Open settings
+              </Link>
+            </div>
+          </div>
+        ) : null}
 
-      <div className="form-grid single">
+        {!hasUploadLink ? (
+          <div className="alert info">
+            Generate or insert the latest upload link before sending.
+          </div>
+        ) : null}
+
+        {emailStatus ? (
+          <div className={`alert ${emailStatusTone}`}>
+            {emailStatus}
+          </div>
+        ) : null}
+
+        {gmailConnected ? (
+          <div className="alert success">
+            Gmail connected as {gmailConnectedEmail}.
+          </div>
+        ) : null}
+
+        <div className="form-grid single">
+          <label>
+            Subject
+            <input
+              value={emailSubject}
+              onChange={(event) => setEmailSubject(event.currentTarget.value)}
+              placeholder="Missing documents for your application"
+            />
+          </label>
+        </div>
+
         <label>
-          Subject
-          <input
-            value={emailSubject}
-            onChange={(event) => setEmailSubject(event.currentTarget.value)}
-            placeholder="Missing documents for your application"
+          Editable email body
+          <textarea
+            className="message-box"
+            value={emailBody}
+            onChange={(event) => setEmailBody(event.currentTarget.value)}
+            rows={12}
           />
         </label>
-      </div>
 
-      <label>
-        Editable email body
-        <textarea
-          className="message-box"
-          value={emailBody}
-          onChange={(event) => setEmailBody(event.currentTarget.value)}
-          rows={12}
-        />
-      </label>
+        <div className="form-grid single">
+          <label>
+            Email upload link status
+            <input
+              readOnly
+              value={
+                hasUploadLink && emailHasLatestUploadLink
+                  ? "Current upload link is included in the email."
+                  : "Generate or insert the latest upload link before sending."
+              }
+            />
+          </label>
+        </div>
 
-      <div className="form-grid single">
-        <label>
-          Email upload link status
-          <input
-            readOnly
-            value={
-              uploadLink && emailHasLatestUploadLink
-                ? "Current upload link is included in the email."
-                : "Generate or insert the latest upload link before sending."
+        {hasUploadLink && !emailHasLatestUploadLink ? (
+          <div className="alert info">
+            This email draft does not include the latest upload link.
+            <div className="button-row">
+              <button
+                className="button secondary"
+                disabled={isPending}
+                type="button"
+                onClick={insertLatestEmailUploadLink}
+              >
+                Insert latest upload link
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="button-row">
+          <button
+            className="button secondary"
+            disabled={isPending}
+            type="button"
+            onClick={generateEmailDraft}
+          >
+            {isPending ? "Working..." : "Generate email"}
+          </button>
+          <button
+            className="button secondary"
+            disabled={!canSendEmail || isPending}
+            type="button"
+            onClick={copyEmailDraft}
+          >
+            Copy email
+          </button>
+          <button
+            className="button"
+            disabled={
+              isPending ||
+              !gmailConnected ||
+              !hasUploadLink ||
+              !hasValidStudentEmail ||
+              !canSendEmail ||
+              !emailHasLatestUploadLink
             }
-          />
-        </label>
-      </div>
-
-      {uploadLink && !emailHasLatestUploadLink ? (
-        <div className="alert info">
-          This email draft does not include the latest upload link.
-          <div className="button-row">
-            <button
-              className="button secondary"
-              disabled={isPending}
-              type="button"
-              onClick={insertLatestEmailUploadLink}
-            >
-              Insert latest upload link
-            </button>
-          </div>
+            type="button"
+            onClick={sendEmailMessage}
+          >
+            {isPending ? "Sending..." : "Send from connected Gmail"}
+          </button>
         </div>
-      ) : null}
 
-      <div className="button-row">
-        <button
-          className="button secondary"
-          disabled={isPending}
-          type="button"
-          onClick={generateEmailDraft}
-        >
-          {isPending ? "Working..." : "Generate email"}
-        </button>
-        <button
-          className="button secondary"
-          disabled={!canSendEmail || isPending}
-          type="button"
-          onClick={copyEmailDraft}
-        >
-          Copy email
-        </button>
-        <button
-          className="button"
-          disabled={
-            isPending ||
-            !hasValidStudentEmail ||
-            !gmailConnected ||
-            !canSendEmail ||
-            (messageType !== "file_complete" && !emailHasLatestUploadLink)
-          }
-          type="button"
-          onClick={sendEmailMessage}
-        >
-          {isPending ? "Sending..." : "Send from connected Gmail"}
-        </button>
-      </div>
-
-      {!studentEmail ? (
-        <p className="muted">Add student email first.</p>
-      ) : !hasValidStudentEmail ? (
-        <p className="muted">Add a valid student email first.</p>
-      ) : null}
-    </section>
+        {!studentEmail ? (
+          <p className="muted">Add student email first.</p>
+        ) : !hasValidStudentEmail ? (
+          <p className="muted">Add a valid student email first.</p>
+        ) : null}
+      </section>
+    </div>
   );
 }

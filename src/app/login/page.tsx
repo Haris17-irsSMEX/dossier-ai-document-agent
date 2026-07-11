@@ -42,6 +42,9 @@ export default async function LoginPage({
         <p className="muted">
           New here? <Link className="text-link" href="/signup">Create an account</Link>.
         </p>
+        <p className="muted">
+          Invited counselor? Open your invite link first to create your password.
+        </p>
       </section>
     </main>
   );

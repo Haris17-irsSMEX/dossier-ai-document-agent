@@ -88,7 +88,9 @@ export async function createAgencyWorkspaceAction(formData: FormData) {
     full_name: parsed.data.owner_name,
     email: user.email,
     phone: emptyToNull(parsed.data.phone),
-    role: "owner"
+    role: "agency_admin",
+    status: "active",
+    joined_at: new Date().toISOString()
   });
 
   if (profileError) {
@@ -118,7 +120,7 @@ export async function createAgencyWorkspaceAction(formData: FormData) {
       newData: {
         full_name: parsed.data.owner_name,
         email: user.email,
-        role: "owner"
+        role: "agency_admin"
       }
     })
   ]);

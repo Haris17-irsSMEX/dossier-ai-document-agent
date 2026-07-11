@@ -6,15 +6,18 @@ import {
   LayoutDashboard,
   LogOut,
   Settings2,
+  ShieldCheck,
+  UserCog,
   UserPlus,
   Users
 } from "lucide-react";
 import Link from "next/link";
 
 import { logoutAction } from "@/lib/actions/auth";
+import { getRoleContext, normalizeRole } from "@/lib/auth/role-utils";
 import { APP_NAME, APP_TAGLINE } from "@/lib/constants";
 
-const navigation = [
+const workspaceNavigation = [
   {
     href: "/dashboard",
     label: "Dashboard",
@@ -31,9 +34,28 @@ const navigation = [
   { href: "/settings", label: "Settings", icon: Settings2, exact: true }
 ];
 
+const agencyAdminNavigation = [
+  ...workspaceNavigation.slice(0, 3),
+  { href: "/team", label: "Team", icon: UserCog, exact: false },
+  workspaceNavigation[3]
+];
+
+const platformNavigation = [
+  {
+    href: "/admin",
+    label: "Agency control",
+    icon: ShieldCheck,
+    exact: false
+  },
+  { href: "/settings", label: "Settings", icon: Settings2, exact: true }
+];
+
 function isActive(
   pathname: string,
-  item: (typeof navigation)[number]
+  item:
+    | (typeof workspaceNavigation)[number]
+    | (typeof agencyAdminNavigation)[number]
+    | (typeof platformNavigation)[number]
 ) {
   if (item.href === "/students" && pathname === "/students/new") {
     return false;
@@ -44,10 +66,28 @@ function isActive(
     : pathname === item.href || pathname.startsWith(`${item.href}/`);
 }
 
-export function Sidebar({ pathname }: { pathname: string }) {
+export function Sidebar({
+  pathname,
+  role
+}: {
+  pathname: string;
+  role?: string | null;
+}) {
+  const normalizedRole = role ? normalizeRole(role) : null;
+  const roleContext = role ? getRoleContext(role) : null;
+  const visibleNavigation =
+    normalizedRole === "platform_admin"
+      ? platformNavigation
+      : normalizedRole === "agency_admin"
+        ? agencyAdminNavigation
+        : normalizedRole === "counselor"
+          ? workspaceNavigation
+          : [];
+  const brandHref = normalizedRole === "platform_admin" ? "/admin" : "/dashboard";
+
   return (
     <aside className="sidebar">
-      <Link className="sidebar-brand" href="/dashboard">
+      <Link className="sidebar-brand" href={brandHref}>
         <span className="sidebar-brand-mark">
           <FileCheck2 aria-hidden="true" size={18} strokeWidth={2} />
         </span>
@@ -57,8 +97,15 @@ export function Sidebar({ pathname }: { pathname: string }) {
         </span>
       </Link>
 
+      {roleContext ? (
+        <div className="sidebar-role-context">
+          <span>{roleContext.label}</span>
+          <small>{roleContext.detail}</small>
+        </div>
+      ) : null}
+
       <nav className="sidebar-nav" aria-label="Workspace navigation">
-        {navigation.map((item) => {
+        {visibleNavigation.map((item) => {
           const Icon = item.icon;
           return (
             <Link
@@ -79,8 +126,8 @@ export function Sidebar({ pathname }: { pathname: string }) {
           <span>Help & information</span>
         </div>
         <div className="sidebar-workspace-label">
-          <span>Consultant workspace</span>
-          <small>Document operations</small>
+          <span>{roleContext?.label || "Workspace"}</span>
+          <small>{roleContext?.detail || "Loading access"}</small>
         </div>
         <form action={logoutAction}>
           <button className="sidebar-logout" type="submit">

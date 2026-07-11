@@ -114,6 +114,29 @@ export async function listChecklistItems(studentId: string) {
   return data ?? [];
 }
 
+export async function listRequestedChecklistItems(studentId: string) {
+  const profile = await requireCurrentProfile();
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("checklist_items")
+    .select("*, document_parts(*)")
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", studentId)
+    .eq("is_archived", false)
+    .eq("is_requested", true)
+    .eq("visible_to_student", true)
+    .order("phase_order")
+    .order("item_order")
+    .order("created_at");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ?? [];
+}
+
 export async function generateChecklistAction(formData: FormData) {
   const studentId = z.string().uuid().parse(formData.get("student_id"));
   const profile = await requireCurrentProfile();
@@ -216,7 +239,6 @@ export async function generateChecklistAction(formData: FormData) {
   }
 
   if (inserts.length) {
-    const requestedAt = new Date().toISOString();
     const { data: created, error } = await supabase
       .from("checklist_items")
       .insert(
@@ -225,8 +247,11 @@ export async function generateChecklistAction(formData: FormData) {
           agency_id: profile.agency_id,
           student_id: studentId,
           created_by: profile.id,
-          requested_at: item.is_requested ? requestedAt : null,
-          requested_by: item.is_requested ? profile.id : null
+          is_requested: false,
+          visible_to_student: false,
+          counts_toward_completion: false,
+          requested_at: null,
+          requested_by: null
         }))
       )
       .select("id, required_parts");
@@ -296,7 +321,9 @@ export async function generateChecklistAction(formData: FormData) {
   });
 
   revalidatePath(`/students/${studentId}/checklist`);
-  redirect(`/students/${studentId}/checklist?success=Checklist generated`);
+  redirect(
+    `/students/${studentId}/checklist?success=${encodeURIComponent("Document options prepared")}`
+  );
 }
 
 export async function updateChecklistItemAction(formData: FormData) {
@@ -616,6 +643,130 @@ const requestStateActionSchema = z.object({
   student_id: z.string().uuid()
 });
 
+async function requestChecklistItems({
+  studentId,
+  itemIds,
+  successLabel
+}: {
+  studentId: string;
+  itemIds: string[];
+  successLabel: string;
+}) {
+  const profile = await requireCurrentProfile();
+  await getStudent(studentId);
+  const supabase = await createSupabaseServerClient();
+  const uniqueIds = [...new Set(itemIds)].filter(Boolean);
+
+  if (!uniqueIds.length) {
+    redirect(
+      `/students/${studentId}/checklist?error=${encodeURIComponent("Select at least one document option.")}`
+    );
+  }
+
+  const { data: items, error: itemsError } = await supabase
+    .from("checklist_items")
+    .select("id, document_name, is_archived, is_requested")
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", studentId)
+    .in("id", uniqueIds);
+
+  if (itemsError) {
+    captureAppError(itemsError, {
+      module: "checklists",
+      action: "document_request_bulk_load",
+      agencyId: profile.agency_id,
+      studentId
+    });
+    redirect(`/students/${studentId}/checklist?error=${encodeURIComponent(itemsError.message)}`);
+  }
+
+  const requestableIds = (items ?? [])
+    .filter((item) => item.is_archived !== true && item.is_requested !== true)
+    .map((item) => item.id);
+
+  if (!requestableIds.length) {
+    redirect(
+      `/students/${studentId}/checklist?success=${encodeURIComponent("Selected documents are already visible to the student.")}`
+    );
+  }
+
+  const { data: existingDocuments } = await supabase
+    .from("documents")
+    .select("checklist_item_id")
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", studentId)
+    .in("checklist_item_id", requestableIds);
+  const itemIdsWithUploads = new Set(
+    (existingDocuments ?? []).map((document) => document.checklist_item_id)
+  );
+  const idsWithoutUploads = requestableIds.filter((id) => !itemIdsWithUploads.has(id));
+  const idsWithUploads = requestableIds.filter((id) => itemIdsWithUploads.has(id));
+  const requestedAt = new Date().toISOString();
+  const baseUpdate = {
+    is_requested: true,
+    requested_at: requestedAt,
+    requested_by: profile.id,
+    visible_to_student: true,
+    counts_toward_completion: true
+  };
+
+  if (idsWithoutUploads.length) {
+    const { error } = await supabase
+      .from("checklist_items")
+      .update({ ...baseUpdate, status: "missing" })
+      .eq("agency_id", profile.agency_id)
+      .eq("student_id", studentId)
+      .in("id", idsWithoutUploads);
+
+    if (error) {
+      captureAppError(error, {
+        module: "checklists",
+        action: "document_request_bulk_activate",
+        agencyId: profile.agency_id,
+        studentId
+      });
+      redirect(`/students/${studentId}/checklist?error=${encodeURIComponent(error.message)}`);
+    }
+  }
+
+  if (idsWithUploads.length) {
+    const { error } = await supabase
+      .from("checklist_items")
+      .update(baseUpdate)
+      .eq("agency_id", profile.agency_id)
+      .eq("student_id", studentId)
+      .in("id", idsWithUploads);
+
+    if (error) {
+      captureAppError(error, {
+        module: "checklists",
+        action: "document_request_bulk_activate",
+        agencyId: profile.agency_id,
+        studentId
+      });
+      redirect(`/students/${studentId}/checklist?error=${encodeURIComponent(error.message)}`);
+    }
+  }
+
+  await writeAuditLog({
+    agencyId: profile.agency_id,
+    actorProfileId: profile.id,
+    tableName: "checklist_items",
+    recordId: studentId,
+    action: "document_request_activated",
+    metadata: {
+      student_id: studentId,
+      requested_count: requestableIds.length,
+      requested_ids: requestableIds
+    }
+  });
+
+  revalidateChecklistRequestPaths(studentId);
+  redirect(
+    `/students/${studentId}/checklist?success=${encodeURIComponent(successLabel)}`
+  );
+}
+
 export async function activateChecklistItemAction(formData: FormData) {
   const parsed = requestStateActionSchema.parse(Object.fromEntries(formData));
   const profile = await requireCurrentProfile();
@@ -682,6 +833,17 @@ export async function activateChecklistItemAction(formData: FormData) {
   );
 }
 
+export async function bulkRequestChecklistItemsAction(formData: FormData) {
+  const studentId = z.string().uuid().parse(formData.get("student_id"));
+  const selectedIds = formData.getAll("selected_ids").map(String);
+
+  return requestChecklistItems({
+    studentId,
+    itemIds: selectedIds,
+    successLabel: "Selected documents are now visible to the student."
+  });
+}
+
 export async function markChecklistItemNotNeededAction(formData: FormData) {
   const parsed = requestStateActionSchema.parse(Object.fromEntries(formData));
   const profile = await requireCurrentProfile();
@@ -733,7 +895,7 @@ export async function markChecklistItemNotNeededAction(formData: FormData) {
 
   revalidateChecklistRequestPaths(parsed.student_id);
   redirect(
-    `/students/${parsed.student_id}/checklist?success=${encodeURIComponent(`${item.document_name} marked as not needed`)}`
+    `/students/${parsed.student_id}/checklist?success=${encodeURIComponent(`${item.document_name} is no longer requested from the student`)}`
   );
 }
 

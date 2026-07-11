@@ -1,5 +1,7 @@
+import { EducationBackgroundField } from "@/components/students/education-background-field";
 import { SubmitButton } from "@/components/forms/submit-button";
 import { createStudentAction } from "@/lib/actions/students";
+import { programLevelOptions } from "@/lib/students/education-background";
 
 type Consultant = {
   id: string;
@@ -28,9 +30,11 @@ function FormSection({
 }
 
 export function StudentForm({
+  canAssignCounselor = false,
   consultants,
   error
 }: {
+  canAssignCounselor?: boolean;
   consultants: Consultant[];
   error?: string;
 }) {
@@ -73,43 +77,43 @@ export function StudentForm({
           <input name="intake" required placeholder="Fall 2026" />
         </label>
         <label>
-          Program level
+          Applying for
           <select name="program_level" required defaultValue="">
             <option value="" disabled>
               Choose level
             </option>
-            <option>Bachelor</option>
-            <option>Master</option>
-            <option>PhD</option>
-            <option>Diploma</option>
-            <option>Foundation</option>
+            {programLevelOptions.map((option) => (
+              <option key={option}>{option}</option>
+            ))}
           </select>
+          <span className="field-help">
+            Select the program level the student wants admission in.
+          </span>
         </label>
       </FormSection>
 
       <FormSection
         title="Background"
-        description="Context used by the smart checklist rules."
+        description="Context used to prepare smart document options."
       >
-        <label>
-          Education background
-          <input
-            name="education_background"
-            required
-            placeholder="Intermediate, O-Level, Bachelor"
-          />
-        </label>
-        <label>
+        <div>
+          <span className="field-label">Education completed</span>
+          <EducationBackgroundField />
+        </div>
+        <label className="sponsor-field">
           Sponsor type
           <select name="sponsor_type" required defaultValue="">
             <option value="" disabled>
-              Choose sponsor
+              Choose sponsor type
             </option>
-            <option>Self</option>
             <option>Parent / Family</option>
-            <option>Business Sponsor</option>
+            <option>Self-funded</option>
             <option>Scholarship</option>
+            <option>Education loan</option>
+            <option>Government / Employer sponsored</option>
+            <option>Other</option>
           </select>
+          <span className="field-help">Choose who will fund this application.</span>
         </label>
       </FormSection>
 
@@ -117,20 +121,28 @@ export function StudentForm({
         title="Ownership & deadline"
         description="Assign the case and set the application timeline."
       >
-        <label>
-          Assigned consultant
-          <select
+        {canAssignCounselor ? (
+          <label>
+            Assigned counselor
+            <select
+              name="assigned_consultant_id"
+              required
+              defaultValue={defaultConsultantId}
+            >
+              {consultants.map((consultant) => (
+                <option key={consultant.id} value={consultant.id}>
+                  {consultant.full_name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <input
             name="assigned_consultant_id"
-            required
-            defaultValue={defaultConsultantId}
-          >
-            {consultants.map((consultant) => (
-              <option key={consultant.id} value={consultant.id}>
-                {consultant.full_name}
-              </option>
-            ))}
-          </select>
-        </label>
+            type="hidden"
+            value={defaultConsultantId}
+          />
+        )}
         <label>
           Deadline date
           <input name="deadline_date" type="date" />
@@ -144,7 +156,7 @@ export function StudentForm({
 
       <div className="form-actions">
         <span className="form-note">
-          A smart checklist is generated after the student profile is created.
+          Document options are prepared after the student profile is created.
         </span>
         <SubmitButton
           pendingLabel="Creating student..."
