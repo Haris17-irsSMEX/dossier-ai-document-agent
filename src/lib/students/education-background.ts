@@ -105,3 +105,18 @@ export function serializeEducationBackground(
 
   return knownSelections.join(", ");
 }
+
+export function normalizeEducationBackground(
+  value?: string | null,
+  fallbackOtherText?: string
+) {
+  const parsed = parseEducationBackground(value);
+  const otherText =
+    parsed.otherText.trim() || fallbackOtherText?.trim() || "";
+
+  return serializeEducationBackground(parsed.selected, otherText);
+}
+
+export function formatEducationBackgroundDisplay(value?: string | null) {
+  return normalizeEducationBackground(value);
+}

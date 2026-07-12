@@ -41,11 +41,11 @@ function fallbackMessageFor(error?: unknown) {
         name
       )
     ) {
-      return "Camera blocked on this connection. Use Take Photo below.";
+      return "Camera preview is not available right now. You can still use Take Photo or Choose file below.";
     }
   }
 
-  return "Camera preview isn’t available on this connection. Use Take Photo or Choose File.";
+  return "Camera preview is not available on this connection. You can still use Take Photo or Choose file below.";
 }
 
 function fileNameFor(item: ChecklistItem, step: UploadStep) {
@@ -92,14 +92,16 @@ export function CameraCapture({
     async function openCamera() {
       if (!availability.canUseLiveCamera) {
         switchToFallback(
-          "Camera preview isn’t available on this connection. Use Take Photo or Choose File."
+          "Camera preview is not available on this connection. You can still use Take Photo or Choose file below."
         );
         return;
       }
 
       try {
         timeoutId = window.setTimeout(() => {
-          switchToFallback("Camera blocked on this connection. Use Take Photo below.");
+          switchToFallback(
+            "Camera preview took too long to open. You can still use Take Photo or Choose file below."
+          );
         }, CAMERA_TIMEOUT_MS);
 
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -206,20 +208,20 @@ export function CameraCapture({
     <div className="camera-capture">
       {showLiveVideo ? (
         <div className="camera-stage">
-            <video
-              ref={videoRef}
-              aria-label={`${item.document_name} ${step.label} camera preview`}
-              autoPlay
-              muted
-              playsInline
-            />
-            <div className="document-frame-overlay">
-              <div className="document-frame" />
-              <span>
-                Place {item.document_name} {step.label.toLowerCase()} inside the
-                frame
-              </span>
-            </div>
+          <video
+            ref={videoRef}
+            aria-label={`${item.document_name} ${step.label} camera preview`}
+            autoPlay
+            muted
+            playsInline
+          />
+          <div className="document-frame-overlay">
+            <div className="document-frame" />
+            <span>
+              Place {item.document_name} {step.label.toLowerCase()} inside the
+              frame
+            </span>
+          </div>
         </div>
       ) : (
         <div className="camera-fallback-card">
@@ -232,9 +234,9 @@ export function CameraCapture({
             </strong>
             <p>
               {cameraState === "opening"
-                ? "We’ll show the document frame when the camera is ready."
+                ? "We'll show the document frame when the camera is ready."
                 : cameraError ||
-                  "Camera preview isn’t available on this connection. Use Take Photo or Choose File."}
+                  "Camera preview is not available on this connection. You can still use Take Photo or Choose file below."}
             </p>
           </div>
         </div>
@@ -270,8 +272,8 @@ export function CameraCapture({
         </label>
       </div>
       <p className="muted">
-        Your photo is uploaded securely for your consultant. Live preview
-        requires a secure HTTPS connection.
+        Your photo is uploaded securely for your consultant. Live preview works
+        best on a secure HTTPS connection, but uploads still work if preview is unavailable.
       </p>
     </div>
   );

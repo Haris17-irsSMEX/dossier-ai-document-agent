@@ -188,7 +188,10 @@ export function EditStudentProfileButton({
                 <div className="form-section-fields">
                   <div>
                     <span className="field-label">Education completed</span>
-                    <EducationBackgroundField defaultValue={student.education_background || ""} />
+                    <EducationBackgroundField
+                      key={student.education_background || "education-background"}
+                      defaultValue={student.education_background || ""}
+                    />
                   </div>
                   <label>
                     Sponsor type

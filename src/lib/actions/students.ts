@@ -25,6 +25,7 @@ import {
   summarizeChecklist
 } from "@/lib/checklists/request-logic";
 import { buildSmartChecklistRules } from "@/lib/checklists/rules";
+import { normalizeEducationBackground } from "@/lib/students/education-background";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { captureAppError } from "@/lib/monitoring/sentry";
 
@@ -379,6 +380,9 @@ export async function createStudentAction(formData: FormData) {
 
   const supabase = await createSupabaseServerClient();
   const input = parsed.data;
+  const normalizedEducationBackground = normalizeEducationBackground(
+    input.education_background
+  );
   let assigneeId = input.assigned_consultant_id;
 
   try {
@@ -410,7 +414,7 @@ export async function createStudentAction(formData: FormData) {
       destination_country: input.target_country,
       intake: input.intake,
       program_level: input.program_level,
-      education_background: input.education_background,
+      education_background: normalizedEducationBackground,
       sponsor_type: input.sponsor_type,
       deadline_date: emptyToNull(input.deadline_date)
     })
@@ -429,7 +433,7 @@ export async function createStudentAction(formData: FormData) {
   const checklistItems = buildSmartChecklistRules({
     targetCountry: input.target_country,
     programLevel: input.program_level,
-    educationBackground: input.education_background,
+    educationBackground: normalizedEducationBackground,
     sponsorType: input.sponsor_type,
     intake: input.intake,
     deadlineDate: input.deadline_date
@@ -551,6 +555,9 @@ export async function updateStudentProfileAction(formData: FormData) {
   const profile = state.profile;
   const supabase = await createSupabaseServerClient();
   const input = parsed.data;
+  const normalizedEducationBackground = normalizeEducationBackground(
+    input.education_background
+  );
   const { data: student, error: studentError } = await supabase
     .from("students")
     .select(
@@ -594,7 +601,7 @@ export async function updateStudentProfileAction(formData: FormData) {
     destination_country: input.target_country,
     intake: input.intake,
     program_level: input.program_level,
-    education_background: input.education_background,
+    education_background: normalizedEducationBackground,
     sponsor_type: input.sponsor_type,
     assigned_consultant_id: assigneeId,
     assigned_counselor_id: assigneeId,

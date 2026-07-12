@@ -19,12 +19,42 @@ function browserSafeBaseUrl(value: string) {
   }
 }
 
+function vercelBrowserUrl() {
+  const vercelHost =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim() ||
+    process.env.VERCEL_URL?.trim();
+
+  if (!vercelHost) {
+    return null;
+  }
+
+  const normalizedHost = vercelHost
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/+$/, "");
+
+  if (!normalizedHost || normalizedHost === "0.0.0.0") {
+    return null;
+  }
+
+  return browserSafeBaseUrl(`https://${normalizedHost}`);
+}
+
 export function getAppBaseUrl() {
   const configured =
     process.env.NEXT_PUBLIC_APP_URL?.trim() || process.env.APP_BASE_URL?.trim();
 
   if (configured) {
-    return browserSafeBaseUrl(configured);
+    const safeConfigured = browserSafeBaseUrl(configured);
+
+    if (process.env.NODE_ENV !== "production" || !isPrivateOrLocalUrl(safeConfigured)) {
+      return safeConfigured;
+    }
+  }
+
+  const vercelUrl = vercelBrowserUrl();
+
+  if (vercelUrl) {
+    return vercelUrl;
   }
 
   if (process.env.NODE_ENV === "development") {

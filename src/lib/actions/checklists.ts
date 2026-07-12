@@ -962,6 +962,27 @@ export async function generateUploadTokenAction(formData: FormData) {
   const supabase = await createSupabaseServerClient();
   const token = crypto.randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
+  const revokedAt = new Date().toISOString();
+
+  const { error: revokeError } = await supabase
+    .from("upload_tokens")
+    .update({
+      status: "revoked",
+      revoked_at: revokedAt
+    })
+    .eq("agency_id", profile.agency_id)
+    .eq("student_id", studentId)
+    .eq("status", "active");
+
+  if (revokeError) {
+    captureAppError(revokeError, {
+      module: "checklists",
+      action: "upload_token_revoke_previous",
+      agencyId: profile.agency_id,
+      studentId
+    });
+    redirect(`/students/${studentId}/checklist?error=${encodeURIComponent(revokeError.message)}`);
+  }
 
   const { error } = await supabase.from("upload_tokens").insert({
     agency_id: profile.agency_id,
