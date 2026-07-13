@@ -204,25 +204,38 @@ export function CaptureStep({
         <p className="muted">Latest upload: {latest.original_filename}</p>
       ) : null}
       <div className="button-row">
-        <label className="button secondary">
-          Choose file
-          <input
-            key={`file-${inputKey}`}
-            className="visually-hidden"
-            type="file"
-            accept={acceptValue(item.accepted_formats)}
-            onChange={handleFileChange}
-          />
-        </label>
         {cameraEnabled ? (
-          <label className="button secondary">
-            Take photo
+          <label className="button">
+            Take photo or upload file
             <input
-              key={`camera-${inputKey}`}
+              key={`camera-or-file-${inputKey}`}
               className="visually-hidden"
               type="file"
               accept="image/*"
               capture="environment"
+              onChange={handleFileChange}
+            />
+          </label>
+        ) : (
+          <label className="button">
+            Upload file
+            <input
+              key={`file-${inputKey}`}
+              className="visually-hidden"
+              type="file"
+              accept={acceptValue(item.accepted_formats)}
+              onChange={handleFileChange}
+            />
+          </label>
+        )}
+        {cameraEnabled ? (
+          <label className="button secondary">
+            Choose file
+            <input
+              key={`file-${inputKey}`}
+              className="visually-hidden"
+              type="file"
+              accept={acceptValue(item.accepted_formats)}
               onChange={handleFileChange}
             />
           </label>

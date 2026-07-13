@@ -25,7 +25,10 @@ import {
   summarizeChecklist
 } from "@/lib/checklists/request-logic";
 import { buildSmartChecklistRules } from "@/lib/checklists/rules";
-import { normalizeEducationBackground } from "@/lib/students/education-background";
+import {
+  normalizeEducationBackground,
+  serializeEducationBackground
+} from "@/lib/students/education-background";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { captureAppError } from "@/lib/monitoring/sentry";
 
@@ -69,6 +72,21 @@ function normalizePhone(value?: string) {
   }
 
   return phone.replace(/\s+/g, " ");
+}
+
+function getEducationBackgroundFromFormData(formData: FormData) {
+  const selectedValues = formData
+    .getAll("education_background_values")
+    .map((value) => String(value));
+  const otherText = String(formData.get("education_background_other") || "");
+
+  if (selectedValues.length) {
+    return serializeEducationBackground(selectedValues, otherText);
+  }
+
+  return normalizeEducationBackground(
+    String(formData.get("education_background") || "")
+  );
 }
 
 export async function getCurrentProfile() {
@@ -372,7 +390,10 @@ export async function archiveStudent(studentId: string) {
 
 export async function createStudentAction(formData: FormData) {
   const profile = await requireCurrentProfile();
-  const parsed = studentSchema.safeParse(Object.fromEntries(formData));
+  const parsed = studentSchema.safeParse({
+    ...Object.fromEntries(formData),
+    education_background: getEducationBackgroundFromFormData(formData)
+  });
 
   if (!parsed.success) {
     redirect(`/students/new?error=${encodeURIComponent(parsed.error.issues[0]?.message || "Invalid student data.")}`);
@@ -543,7 +564,10 @@ export async function updateStudentProfileAction(formData: FormData) {
     };
   }
 
-  const parsed = updateStudentSchema.safeParse(Object.fromEntries(formData));
+  const parsed = updateStudentSchema.safeParse({
+    ...Object.fromEntries(formData),
+    education_background: getEducationBackgroundFromFormData(formData)
+  });
 
   if (!parsed.success) {
     return {

@@ -252,7 +252,7 @@ export function CameraCapture({
           </button>
         ) : null}
         <label className={`button ${cameraState === "ready" ? "secondary" : ""}`}>
-          Take photo
+          Take photo or upload file
           <input
             className="visually-hidden"
             type="file"

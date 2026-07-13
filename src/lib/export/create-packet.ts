@@ -15,6 +15,7 @@ import {
 } from "@/lib/checklists/request-logic";
 import { STUDENT_DOCUMENTS_BUCKET, mapStorageBucketErrorMessage } from "@/lib/constants";
 import { formatDateTime } from "@/lib/date";
+import { formatEducationBackgroundDisplay } from "@/lib/students/education-background";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -310,6 +311,7 @@ async function createSummaryPdf(preview: ExportPacketPreview) {
   drawLine(`Target country: ${preview.student.target_country || preview.student.destination_country || "-"}`);
   drawLine(`Intake: ${preview.student.intake || "-"}`);
   drawLine(`Program level: ${preview.student.program_level || "-"}`);
+  drawLine(`Education completed: ${formatEducationBackgroundDisplay(preview.student.education_background) || "-"}`);
   drawLine(`Deadline: ${formatDateTime(preview.student.deadline_date) || preview.student.deadline_date || "-"}`);
 
   section("Checklist Summary");

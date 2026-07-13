@@ -4,8 +4,7 @@ import { useState } from "react";
 
 import {
   educationBackgroundOptions,
-  parseEducationBackground,
-  serializeEducationBackground
+  parseEducationBackground
 } from "@/lib/students/education-background";
 
 export function EducationBackgroundField({
@@ -29,7 +28,6 @@ export function EducationBackgroundField({
     });
   }
 
-  const serializedValue = serializeEducationBackground(selected, otherText);
   const hasOther = selected.includes("Other");
   const selectedDisplay = selected.filter((option) => option !== "Other");
 
@@ -37,7 +35,6 @@ export function EducationBackgroundField({
 
   return (
     <div className="education-background-field">
-      <input name={name} type="hidden" value={serializedValue} />
       <span className="field-help">
         Select all qualifications the student has completed.
       </span>
@@ -52,7 +49,9 @@ export function EducationBackgroundField({
             >
               <input
                 checked={checked}
+                name={`${name}_values`}
                 type="checkbox"
+                value={option}
                 onChange={() => toggleOption(option)}
               />
               <span>{option}</span>
@@ -76,6 +75,7 @@ export function EducationBackgroundField({
         <label className="span-2">
           Other education background
           <input
+            name={`${name}_other`}
             value={otherText}
             onChange={(event) => setOtherText(event.target.value)}
             placeholder="DAE Electrical"

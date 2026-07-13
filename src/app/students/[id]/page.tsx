@@ -2,6 +2,7 @@ import {
   CalendarDays,
   CheckCircle2,
   FileText,
+  GraduationCap,
   Phone,
   UserRound
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
   summarizeChecklist
 } from "@/lib/checklists/request-logic";
 import { formatDate } from "@/lib/date";
+import { formatEducationBackgroundDisplay } from "@/lib/students/education-background";
 
 type NextAction = {
   title: string;
@@ -157,6 +159,8 @@ export default async function StudentDetailPage({
   const checklistOverviewText = suggestionCount
     ? `${requestedCount} requested · ${suggestionCount} suggestions`
     : `${requestedCount} requested`;
+  const educationBackground =
+    formatEducationBackgroundDisplay(student.education_background) || "Not set";
 
   return (
     <main className="app-shell">
@@ -203,6 +207,11 @@ export default async function StudentDetailPage({
             icon={UserRound}
             label="Sponsor"
             value={student.sponsor_type || "Not set"}
+          />
+          <MetricCard
+            icon={GraduationCap}
+            label="Education completed"
+            value={educationBackground}
           />
           <MetricCard
             icon={CalendarDays}

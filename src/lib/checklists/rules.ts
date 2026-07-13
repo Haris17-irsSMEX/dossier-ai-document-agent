@@ -7,6 +7,7 @@ import {
 } from "@/lib/checklists/document-templates";
 import { getChecklistPhase, type ChecklistPhaseSlug } from "@/lib/checklists/phases";
 import type { CaseStage } from "@/lib/checklists/request-logic";
+import { normalizeEducationBackground } from "@/lib/students/education-background";
 
 export const acceptedFormatSchema = z.enum(["pdf", "jpg", "png", "docx"]);
 export const uploadTypeSchema = z.enum(["single", "multiple", "multi_part"]);
@@ -175,7 +176,7 @@ export function buildSmartChecklistRules(input: ChecklistRuleInput): ChecklistRu
   const items: ChecklistRuleItem[] = [];
   const country = normalized(input.targetCountry);
   const level = normalized(input.programLevel);
-  const education = normalized(input.educationBackground);
+  const education = normalized(normalizeEducationBackground(input.educationBackground));
   const sponsor = normalized(input.sponsorType);
   const isBachelor = hasValue(level, ["bachelor", "undergraduate"]);
   const isMaster = hasValue(level, ["master", "postgraduate", "mba"]);

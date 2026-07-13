@@ -2,6 +2,7 @@ import { formatDate } from "@/lib/date";
 import {
   isMissingActiveRequest
 } from "@/lib/checklists/request-logic";
+import { formatEducationBackgroundDisplay } from "@/lib/students/education-background";
 import type { ExportPacketPreview } from "@/lib/export/create-packet";
 
 export function ExportSummary({ preview }: { preview: ExportPacketPreview }) {
@@ -14,6 +15,8 @@ export function ExportSummary({ preview }: { preview: ExportPacketPreview }) {
     student.program_level || "-"
   ].join(" · ");
   const uploadedCount = preview.documents.length;
+  const educationBackground =
+    formatEducationBackgroundDisplay(student.education_background) || "-";
 
   const readiness =
     requestedItems.length === 0
@@ -57,6 +60,10 @@ export function ExportSummary({ preview }: { preview: ExportPacketPreview }) {
         <div className="reminder-setup-item">
           <span className="reminder-setup-label">Destination</span>
           <strong>{destinationSummary}</strong>
+        </div>
+        <div className="reminder-setup-item">
+          <span className="reminder-setup-label">Education</span>
+          <strong>{educationBackground}</strong>
         </div>
         <div className="reminder-setup-item">
           <span className="reminder-setup-label">Deadline</span>
