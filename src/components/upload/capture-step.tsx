@@ -12,14 +12,13 @@ import type {
   WizardState
 } from "./types";
 import {
-  acceptValue,
   canPreviewClientFile,
   feedbackForDocument,
+  filePickerAcceptValue,
   isAcceptedClientFile,
   MAX_UPLOAD_BYTES,
   nativeCaptureAcceptValue,
   newestDocument,
-  requiresStudentDecision,
   supportsCamera,
   studentDocumentRequestHint,
   studentStepRequirementLabel,
@@ -28,6 +27,10 @@ import {
 
 function shouldRetake(status?: string | null) {
   return status === "blurry" || status === "wrong_document";
+}
+
+function shouldAskStudentToRetake(status?: string | null, scanStatus?: string | null) {
+  return shouldRetake(status) && scanStatus !== "scan_failed";
 }
 
 export function CaptureStep({
@@ -57,9 +60,11 @@ export function CaptureStep({
   const [status, setStatus] = useState<string | null>(
     latest?.status || latest?.scan_status || null
   );
+  const [lastUploaded, setLastUploaded] = useState<UploadedDocument | null>(null);
   const [inputKey, setInputKey] = useState(0);
   const cameraEnabled = supportsCamera(item.accepted_formats);
   const requestHint = studentDocumentRequestHint(item);
+  const fileInputAccept = filePickerAcceptValue(item.accepted_formats);
 
   useEffect(() => {
     return () => {
@@ -107,6 +112,21 @@ export function CaptureStep({
     if (canPreviewClientFile(file)) {
       setPreviewUrl(URL.createObjectURL(file));
     }
+  }
+
+  function clearSelectedFile() {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
+    setPreviewUrl(null);
+    setSelectedFile(null);
+    setFileError(null);
+    setUploadError(null);
+    setMessage(null);
+    setStatus(null);
+    setState(latest ? "step_complete" : "idle");
+    setInputKey((value) => value + 1);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -162,14 +182,19 @@ export function CaptureStep({
         scan_status: result.scanStatus || "not_scanned",
         created_at: new Date().toISOString()
       };
-      const needsDecision = requiresStudentDecision(
+      const needsRetake = shouldAskStudentToRetake(
         uploadedDocument.status,
         uploadedDocument.scan_status
       );
 
       setStatus(uploadedDocument.status || uploadedDocument.scan_status || null);
-      setMessage(result.scanMessage || result.message || "Uploaded successfully.");
-      setState(needsDecision ? "needs_retake" : "step_complete");
+      setLastUploaded(uploadedDocument);
+      setMessage(
+        needsRetake
+          ? result.scanMessage || result.message || "Please retake and upload again."
+          : "Uploaded successfully. Your consultant will review it."
+      );
+      setState(needsRetake ? "needs_retake" : "step_complete");
       setSelectedFile(null);
       setInputKey((value) => value + 1);
 
@@ -178,7 +203,7 @@ export function CaptureStep({
         setPreviewUrl(null);
       }
 
-      onUploaded(uploadedDocument, !needsDecision);
+      onUploaded(uploadedDocument, !needsRetake);
     } catch (error) {
       window.clearTimeout(scanTimer);
       console.error("[capture-step] upload request failed", error);
@@ -205,63 +230,90 @@ export function CaptureStep({
       {latest ? (
         <p className="muted">Latest upload: {latest.original_filename}</p>
       ) : null}
-      <div className="button-row">
-        {cameraEnabled ? (
-          <label className="button">
-            Take photo or upload file
-            <input
-              key={`camera-or-file-${inputKey}`}
-              className="visually-hidden"
-              type="file"
-              accept={nativeCaptureAcceptValue(item.accepted_formats)}
-              capture="environment"
-              onChange={handleFileChange}
-            />
-          </label>
-        ) : (
-          <label className="button">
-            Upload file
-            <input
-              key={`file-${inputKey}`}
-              className="visually-hidden"
-              type="file"
-              accept={acceptValue(item.accepted_formats)}
-              onChange={handleFileChange}
-            />
-          </label>
-        )}
-        {cameraEnabled ? (
-          <label className="button secondary">
-            Choose file
+      {!selectedFile ? (
+        <div className="button-row">
+          {cameraEnabled ? (
+            <label className="button">
+              Take photo
+              <input
+                key={`camera-${inputKey}`}
+                className="visually-hidden"
+                type="file"
+                accept={nativeCaptureAcceptValue()}
+                capture="environment"
+                onChange={handleFileChange}
+              />
+            </label>
+          ) : null}
+          <label className={cameraEnabled ? "button secondary" : "button"}>
+            Upload from gallery / Choose file
             <input
               key={`file-${inputKey}`}
               className="visually-hidden"
               type="file"
-              accept={acceptValue(item.accepted_formats)}
+              accept={fileInputAccept}
               onChange={handleFileChange}
             />
           </label>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       {selectedFile ? (
         <FilePreview file={selectedFile} previewUrl={previewUrl} />
+      ) : null}
+      {selectedFile ? (
+        <div className="button-row">
+          {cameraEnabled ? (
+            <label className="button secondary">
+              Retake
+              <input
+                key={`retake-${inputKey}`}
+                className="visually-hidden"
+                type="file"
+                accept={nativeCaptureAcceptValue()}
+                capture="environment"
+                onChange={handleFileChange}
+              />
+            </label>
+          ) : null}
+          <label className="button secondary">
+            Choose another
+            <input
+              key={`choose-another-${inputKey}`}
+              className="visually-hidden"
+              type="file"
+              accept={fileInputAccept}
+              onChange={handleFileChange}
+            />
+          </label>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={clearSelectedFile}
+          >
+            Clear
+          </button>
+        </div>
       ) : null}
       {fileError ? <span className="inline-error">{fileError}</span> : null}
       {uploadError ? <span className="inline-error">{uploadError}</span> : null}
       <ScanFeedback state={state} message={message} status={status} />
-      <div className="button-row">
-        <button
-          className="button"
-          type="submit"
-          disabled={!selectedFile || Boolean(fileError) || state === "uploading" || state === "scanning"}
-        >
-          {state === "uploading" || state === "scanning"
-            ? "Working..."
-            : latest
-              ? "Replace and upload"
-              : "Confirm upload"}
-        </button>
-        {state === "needs_retake" ? (
+      {selectedFile ? (
+        <div className="button-row">
+          <button
+            className="button"
+            type="submit"
+            disabled={!selectedFile || Boolean(fileError) || state === "uploading" || state === "scanning"}
+          >
+            {state === "uploading" || state === "scanning"
+              ? "Working..."
+              : latest
+                ? "Use this file / Replace"
+                : "Use this file / Upload"}
+          </button>
+        </div>
+      ) : null}
+      {state === "needs_retake" ? (
+        <div className="button-row">
           <button
             className="button secondary"
             type="button"
@@ -276,23 +328,23 @@ export function CaptureStep({
           >
             Retake
           </button>
-        ) : null}
-        {state === "needs_retake" ? (
           <button
             className="button secondary"
             type="button"
             onClick={() => {
-              if (!latest) {
+              const uploaded = lastUploaded || latest;
+
+              if (!uploaded) {
                 return;
               }
 
-              onUploaded(latest, true);
+              onUploaded(uploaded, true);
             }}
           >
             Continue anyway
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </form>
   );
 }

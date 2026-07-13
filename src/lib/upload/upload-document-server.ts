@@ -125,7 +125,7 @@ function studentScanMessage(input: {
   scanStatus?: string;
 }) {
   if (!input.ok || input.scanStatus === "scan_failed") {
-    return "Uploaded successfully. Automatic scan needs counselor review.";
+    return "Uploaded successfully. Your consultant will review it.";
   }
 
   switch (input.documentStatus) {
@@ -506,8 +506,7 @@ export async function completeDirectDocumentUpload(input: DirectUploadCompleteIn
       .update({
         status: "needs_review",
         scan_status: "scan_failed",
-        scan_error_message:
-          "Automatic scan failed. The counselor must review this upload."
+        scan_error_message: "AI scan unavailable. Manual review needed."
       })
       .eq("agency_id", uploadToken.agency_id)
       .eq("id", document.id);
@@ -524,8 +523,7 @@ export async function completeDirectDocumentUpload(input: DirectUploadCompleteIn
       studentId: uploadToken.student_id,
       scanStatus: "scan_failed",
       documentStatus: "needs_review",
-      message:
-        "Uploaded successfully. Automatic scan needs counselor review."
+      message: "Uploaded successfully. Your consultant will review it."
     };
   }
 

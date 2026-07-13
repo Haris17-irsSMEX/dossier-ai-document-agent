@@ -9,7 +9,7 @@ function scanTone(status?: string | null) {
     case "scanned":
       return "success";
     case "scan_failed":
-      return "danger";
+      return "warning";
     case "scanning":
     case "needs_review":
       return "warning";
@@ -26,7 +26,7 @@ function scanLabel(status?: string | null) {
     case "needs_review":
       return "Needs review";
     case "scan_failed":
-      return "Failed";
+      return "AI scan unavailable";
     default:
       return "Not uploaded";
   }

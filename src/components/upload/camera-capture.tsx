@@ -256,7 +256,7 @@ export function CameraCapture({
           <input
             className="visually-hidden"
             type="file"
-            accept={nativeCaptureAcceptValue(item.accepted_formats)}
+            accept={nativeCaptureAcceptValue()}
             capture="environment"
             onChange={handleFallbackFile}
           />

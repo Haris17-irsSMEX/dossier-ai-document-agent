@@ -4,14 +4,12 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { CaptureStep } from "./capture-step";
-import { IdentityScanner } from "./identity-scanner";
 import type { ChecklistItem, UploadedDocument, UploadStep } from "./types";
 import {
   buildUploadSteps,
   documentProgress,
   documentsForStep,
   formatList,
-  isIdentityDocument,
   newestDocument,
   studentDocumentRequestHint,
   studentDocumentRequirementLabel,
@@ -56,7 +54,6 @@ export function DocumentCaptureWizard({
   const autoStepIndex = firstOpenStepIndex(item, steps, documents);
   const activeStepIndex = manualStepIndex ?? autoStepIndex;
   const progress = documentProgress(item, documents);
-  const usesScanner = isIdentityDocument(item);
   const activeStep =
     item.upload_type === "multiple"
       ? steps[0]
@@ -181,27 +178,14 @@ export function DocumentCaptureWizard({
               Do you want to add {activeStep.label.toLowerCase()}?
             </div>
           ) : null}
-          {usesScanner ? (
-            <IdentityScanner
-              key={activeStep.id}
-              token={token}
-              item={item}
-              step={activeStep}
-              stepIndex={activeStepIndex}
-              totalSteps={steps.length}
-              documents={documentsForStep(documents, item, activeStep)}
-              onUploaded={handleUploaded}
-            />
-          ) : (
-            <CaptureStep
-              key={activeStep.id}
-              token={token}
-              item={item}
-              step={activeStep}
-              documents={documentsForStep(documents, item, activeStep)}
-              onUploaded={handleUploaded}
-            />
-          )}
+          <CaptureStep
+            key={activeStep.id}
+            token={token}
+            item={item}
+            step={activeStep}
+            documents={documentsForStep(documents, item, activeStep)}
+            onUploaded={handleUploaded}
+          />
           {!activeStep.isRequired ? (
             <button className="button secondary" type="button" onClick={skipOptionalStep}>
               Skip

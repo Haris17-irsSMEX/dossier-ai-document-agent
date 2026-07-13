@@ -136,7 +136,7 @@ function studentFeedbackForStatus(input: {
   scanStatus?: string;
 }) {
   if (!input.ok || input.scanStatus === "scan_failed") {
-    return "Uploaded successfully. Automatic scan could not run, so the counselor will review this manually.";
+    return "Uploaded successfully. Your consultant will review it.";
   }
 
   switch (input.documentStatus) {

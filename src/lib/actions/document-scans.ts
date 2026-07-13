@@ -101,6 +101,50 @@ function buildManualReviewIssue(message: string): DocumentCheckIssue {
   };
 }
 
+const AZURE_SUPPORTED_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png"
+]);
+
+const AZURE_SUPPORTED_EXTENSIONS = new Set(["pdf", "jpg", "jpeg", "png"]);
+const HEIC_EXTENSIONS = new Set(["heic", "heif"]);
+const HEIC_MIME_TYPES = new Set(["image/heic", "image/heif"]);
+const SAFE_SCAN_UNAVAILABLE_MESSAGE =
+  "AI scan unavailable. Manual review needed.";
+const HEIC_MANUAL_REVIEW_MESSAGE =
+  "AI scan unavailable. Manual review needed. This file type may require manual review.";
+
+function documentExtension(filename: string) {
+  return filename.split(".").pop()?.toLowerCase() || "";
+}
+
+function isHeicLikeDocument(document: UploadedDocumentRecord) {
+  const mimeType = document.mime_type?.toLowerCase() || "";
+  const extension = documentExtension(document.original_filename);
+
+  return HEIC_MIME_TYPES.has(mimeType) || HEIC_EXTENSIONS.has(extension);
+}
+
+function azureSupportMessage(document: UploadedDocumentRecord) {
+  const mimeType = document.mime_type?.toLowerCase() || "";
+  const extension = documentExtension(document.original_filename);
+
+  if (AZURE_SUPPORTED_MIME_TYPES.has(mimeType)) {
+    return null;
+  }
+
+  if (!mimeType && AZURE_SUPPORTED_EXTENSIONS.has(extension)) {
+    return null;
+  }
+
+  if (isHeicLikeDocument(document)) {
+    return HEIC_MANUAL_REVIEW_MESSAGE;
+  }
+
+  return SAFE_SCAN_UNAVAILABLE_MESSAGE;
+}
+
 function scanStatusForDocumentStatus(status: ChecklistStatus) {
   return status === "accepted" ? "scanned" : "needs_review";
 }
@@ -396,7 +440,7 @@ async function markScanFailure(input: {
     .update({
       status: "needs_review",
       scan_status: "scan_failed",
-      scan_summary: "Automatic scan failed. Counselor review is required.",
+      scan_summary: input.message,
       extracted_fields: {},
       scan_error_message: input.message,
       scanned_at: new Date().toISOString()
@@ -467,8 +511,7 @@ async function scanDocumentWithServerContext(input: {
   });
 
   if (!isAzureOcrConfigured()) {
-    const message =
-      "OCR provider not configured. Add AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY.";
+    const message = SAFE_SCAN_UNAVAILABLE_MESSAGE;
     await markScanFailure({
       document,
       actorProfileId: input.actorProfileId,
@@ -482,6 +525,25 @@ async function scanDocumentWithServerContext(input: {
       scanStatus: "scan_failed",
       documentStatus: "needs_review",
       message
+    };
+  }
+
+  const unsupportedMessage = azureSupportMessage(document);
+
+  if (unsupportedMessage) {
+    await markScanFailure({
+      document,
+      actorProfileId: input.actorProfileId,
+      message: unsupportedMessage
+    });
+    revalidatePath(`/students/${document.student_id}/documents`);
+    return {
+      ok: false,
+      documentId: document.id,
+      studentId: document.student_id,
+      scanStatus: "scan_failed",
+      documentStatus: "needs_review",
+      message: unsupportedMessage
     };
   }
 
@@ -668,8 +730,6 @@ async function scanDocumentWithServerContext(input: {
           : "Document scanned and needs consultant review."
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Document scan failed.";
     captureServerError(error, {
       module: "documents",
       action: "scanDocument",
@@ -678,6 +738,7 @@ async function scanDocumentWithServerContext(input: {
         studentId: document.student_id
       }
     });
+    const message = SAFE_SCAN_UNAVAILABLE_MESSAGE;
     await markScanFailure({
       document,
       actorProfileId: input.actorProfileId,

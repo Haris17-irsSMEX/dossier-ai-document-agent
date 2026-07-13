@@ -1,6 +1,17 @@
 import type { WizardState } from "./types";
 import { statusTone } from "./upload-utils";
 
+function feedbackLabel(statusOrState: string) {
+  switch (statusOrState) {
+    case "scan_failed":
+      return "Uploaded";
+    case "needs_review":
+      return "Needs review";
+    default:
+      return statusOrState.replaceAll("_", " ");
+  }
+}
+
 export function ScanFeedback({
   state,
   message,
@@ -23,7 +34,7 @@ export function ScanFeedback({
 
   return (
     <div className={`scan-feedback ${statusTone(status || state)}`}>
-      <span>{label.replaceAll("_", " ")}</span>
+      <span>{feedbackLabel(label)}</span>
       {message ? <p>{message}</p> : null}
     </div>
   );

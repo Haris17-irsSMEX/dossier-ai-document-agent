@@ -37,15 +37,30 @@ const scanStatusTone: Record<string, string> = {
   not_scanned: "info",
   scanning: "warning",
   scanned: "success",
-  scan_failed: "danger",
+  scan_failed: "warning",
   needs_review: "warning"
 };
+
+function scanStatusLabel(status?: string | null) {
+  switch (status) {
+    case "scanned":
+      return "AI scan complete";
+    case "scanning":
+      return "AI scan running";
+    case "needs_review":
+      return "Manual review needed";
+    case "scan_failed":
+      return "AI scan unavailable";
+    default:
+      return "Not scanned";
+  }
+}
 
 function ScanStatusBadge({ status }: { status?: string | null }) {
   const value = status || "not_scanned";
   return (
     <span className={`chip ${scanStatusTone[value] || "info"}`}>
-      {value.replaceAll("_", " ")}
+      {scanStatusLabel(value)}
     </span>
   );
 }

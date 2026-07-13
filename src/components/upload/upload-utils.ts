@@ -172,16 +172,39 @@ export function supportsCamera(formats: string[]) {
   );
 }
 
-export function nativeCaptureAcceptValue(formats: string[]) {
+export function nativeCaptureAcceptValue() {
+  return "image/*";
+}
+
+export function filePickerAcceptValue(formats: string[]) {
   const normalized = formats.map((format) => format.toLowerCase());
   const values = new Set<string>();
+  const acceptsImages = supportsCamera(formats);
 
-  if (supportsCamera(formats)) {
-    values.add("image/*");
+  if (acceptsImages) {
+    values.add("image/heic");
+    values.add("image/heif");
   }
 
   for (const format of normalized) {
-    if (["heic", "heif", "jpg", "jpeg", "png", "webp"].includes(format)) {
+    if (["jpg", "jpeg"].includes(format)) {
+      values.add("image/jpeg");
+      continue;
+    }
+
+    if (format === "png") {
+      values.add("image/png");
+      continue;
+    }
+
+    if (format === "webp") {
+      values.add("image/webp");
+      continue;
+    }
+
+    if (["heic", "heif"].includes(format)) {
+      values.add("image/heic");
+      values.add("image/heif");
       continue;
     }
 
@@ -381,8 +404,7 @@ export function isProblemDocument(document?: UploadedDocument) {
     "needs_review",
     "blurry",
     "wrong_document",
-    "suspicious",
-    "scan_failed"
+    "suspicious"
   ].includes(document?.status || document?.scan_status || "");
 }
 
@@ -396,9 +418,9 @@ export function statusTone(status?: string | null) {
     case "blurry":
     case "wrong_document":
     case "suspicious":
-    case "scan_failed":
     case "needs_retake":
       return "danger";
+    case "scan_failed":
     case "needs_review":
     case "in_progress":
     case "uploading":
@@ -475,7 +497,7 @@ export function feedbackForDocument(document?: UploadedDocument) {
   }
 
   if (document.scan_status === "scan_failed") {
-    return "Uploaded successfully. Automatic scan needs counselor review.";
+    return "Uploaded successfully. Your consultant will review it.";
   }
 
   if (document.status === "needs_review") {
