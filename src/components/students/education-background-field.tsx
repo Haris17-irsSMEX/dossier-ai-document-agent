@@ -4,7 +4,8 @@ import { useState } from "react";
 
 import {
   educationBackgroundOptions,
-  parseEducationBackground
+  parseEducationBackground,
+  serializeEducationBackground
 } from "@/lib/students/education-background";
 
 export function EducationBackgroundField({
@@ -30,11 +31,13 @@ export function EducationBackgroundField({
 
   const hasOther = selected.includes("Other");
   const selectedDisplay = selected.filter((option) => option !== "Other");
+  const serializedValue = serializeEducationBackground(selected, otherText);
 
   const showSummary = selectedDisplay.length > 0 || (hasOther && otherText.trim());
 
   return (
     <div className="education-background-field">
+      <input name={name} type="hidden" value={serializedValue} />
       <span className="field-help">
         Select all qualifications the student has completed.
       </span>

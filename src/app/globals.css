@@ -582,6 +582,7 @@ td span,
 }
 
 .table-wrap {
+  max-width: 100%;
   overflow-x: auto;
 }
 
@@ -1457,19 +1458,20 @@ code {
 .app-frame {
   display: grid;
   grid-template-columns: 232px minmax(0, 1fr);
-  width: min(1560px, calc(100% - 44px));
-  min-height: calc(100vh - 44px);
-  margin: 22px auto;
-  overflow: hidden;
-  border: 1px solid rgba(37, 31, 27, 0.06);
-  border-radius: 28px;
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
   background: #fbfaf8;
-  box-shadow: 0 12px 36px rgba(47, 39, 33, 0.06);
+  box-shadow: none;
 }
 
 .app-main {
   min-width: 0;
   margin-left: 0;
+  overflow-x: hidden;
   background: #fbfaf8;
 }
 
@@ -2018,6 +2020,7 @@ code {
 
 .table-actions-cell {
   width: 1%;
+  min-width: 220px;
 }
 
 .table-actions {
@@ -3504,10 +3507,10 @@ code {
 @media (max-width: 900px) {
   .app-frame {
     grid-template-columns: 1fr;
-    width: calc(100% - 24px);
-    min-height: calc(100vh - 24px);
-    margin: 12px;
-    border-radius: 22px;
+    width: 100%;
+    min-height: 100vh;
+    margin: 0;
+    border-radius: 0;
   }
 
   .app-main {

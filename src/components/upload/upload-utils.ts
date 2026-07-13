@@ -4,9 +4,57 @@ import type {
   UploadResponse,
   UploadStep
 } from "./types";
+import { mapStorageBucketErrorMessage } from "@/lib/constants";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const UPLOAD_REQUEST_TIMEOUT_MS = 90_000;
+
+type UploadPrepareResponse =
+  | {
+      ok: true;
+      bucket: string;
+      storagePath: string;
+      signedUploadToken: string;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
+function syntheticResponse(status: number) {
+  return new Response(null, { status, statusText: status >= 400 ? "Error" : "OK" });
+}
+
+async function postUploadJson<T>(
+  path: string,
+  payload: Record<string, unknown>,
+  signal: AbortSignal
+) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload),
+    signal
+  });
+
+  try {
+    return {
+      response,
+      result: (await response.json()) as T
+    };
+  } catch {
+    return {
+      response,
+      result: {
+        ok: false,
+        error: `Upload service returned HTTP ${response.status}. Please try again.`
+      } as T
+    };
+  }
+}
 
 export async function uploadDocumentRequest(formData: FormData) {
   const controller = new AbortController();
@@ -16,23 +64,73 @@ export async function uploadDocumentRequest(formData: FormData) {
   );
 
   try {
-    const response = await fetch("/api/upload-document", {
-      method: "POST",
-      body: formData,
-      signal: controller.signal
-    });
-    let result: UploadResponse;
+    const file = formData.get("file");
+    const token = String(formData.get("token") || "");
+    const checklistItemId = String(formData.get("checklistItemId") || "");
+    const documentPartId = String(formData.get("documentPartId") || "");
 
-    try {
-      result = (await response.json()) as UploadResponse;
-    } catch {
-      result = {
-        ok: false,
-        error: "The upload service returned an unreadable response."
+    if (!(file instanceof File) || file.size <= 0) {
+      return {
+        response: syntheticResponse(400),
+        result: { ok: false, error: "Choose one file to upload." } as UploadResponse
       };
     }
 
-    return { response, result };
+    const metadata = {
+      token,
+      checklistItemId,
+      documentPartId: documentPartId || undefined,
+      filename: file.name,
+      mimeType: file.type || "",
+      fileSizeBytes: file.size
+    };
+
+    const prepared = await postUploadJson<UploadPrepareResponse>(
+      "/api/upload-document/prepare",
+      metadata,
+      controller.signal
+    );
+
+    if (!prepared.response.ok || !prepared.result.ok) {
+      return {
+        response: prepared.response,
+        result: prepared.result as UploadResponse
+      };
+    }
+
+    const supabase = createSupabaseBrowserClient();
+    const { error: storageError } = await supabase.storage
+      .from(prepared.result.bucket)
+      .uploadToSignedUrl(
+        prepared.result.storagePath,
+        prepared.result.signedUploadToken,
+        file,
+        {
+          contentType: file.type || "application/octet-stream",
+          upsert: false
+        }
+      );
+
+    if (storageError) {
+      return {
+        response: syntheticResponse(500),
+        result: {
+          ok: false,
+          error: mapStorageBucketErrorMessage(storageError.message)
+        } as UploadResponse
+      };
+    }
+
+    const completed = await postUploadJson<UploadResponse>(
+      "/api/upload-document/complete",
+      {
+        ...metadata,
+        storagePath: prepared.result.storagePath
+      },
+      controller.signal
+    );
+
+    return completed;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error(
@@ -68,8 +166,29 @@ export function acceptValue(formats: string[]) {
 
 export function supportsCamera(formats: string[]) {
   return formats.some((format) =>
-    ["jpg", "jpeg", "png"].includes(format.toLowerCase())
+    ["heic", "heif", "jpg", "jpeg", "png", "webp"].includes(
+      format.toLowerCase()
+    )
   );
+}
+
+export function nativeCaptureAcceptValue(formats: string[]) {
+  const normalized = formats.map((format) => format.toLowerCase());
+  const values = new Set<string>();
+
+  if (supportsCamera(formats)) {
+    values.add("image/*");
+  }
+
+  for (const format of normalized) {
+    if (["heic", "heif", "jpg", "jpeg", "png", "webp"].includes(format)) {
+      continue;
+    }
+
+    values.add(`.${format}`);
+  }
+
+  return [...values].join(",") || "image/*,.pdf,.doc,.docx";
 }
 
 function requirementLevel(item: ChecklistItem) {
@@ -161,10 +280,21 @@ export function isAcceptedClientFile(file: File, formats: string[]) {
     format.toLowerCase() === "jpeg" ? "jpg" : format.toLowerCase()
   );
   const extension = extensionFor(file.name);
+  const mimeType = file.type.toLowerCase();
+  const acceptsImages = normalized.some((format) =>
+    ["heic", "heif", "jpg", "jpeg", "png", "webp"].includes(format)
+  );
+  const looksLikeImage =
+    mimeType.startsWith("image/") ||
+    ["heic", "heif", "jpg", "jpeg", "png", "webp"].includes(extension);
   const mimeByFormat: Record<string, string[]> = {
+    doc: ["application/msword"],
     pdf: ["application/pdf"],
     jpg: ["image/jpeg"],
+    heic: ["image/heic", "image/heif"],
+    heif: ["image/heif", "image/heic"],
     png: ["image/png"],
+    webp: ["image/webp"],
     docx: [
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ]
@@ -172,7 +302,14 @@ export function isAcceptedClientFile(file: File, formats: string[]) {
 
   return (
     normalized.includes(extension) ||
-    normalized.some((format) => mimeByFormat[format]?.includes(file.type))
+    normalized.some((format) => mimeByFormat[format]?.includes(mimeType)) ||
+    (acceptsImages && looksLikeImage)
+  );
+}
+
+export function canPreviewClientFile(file: File) {
+  return ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(
+    file.type.toLowerCase()
   );
 }
 

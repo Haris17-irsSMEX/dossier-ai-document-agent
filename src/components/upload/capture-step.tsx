@@ -13,9 +13,11 @@ import type {
 } from "./types";
 import {
   acceptValue,
+  canPreviewClientFile,
   feedbackForDocument,
   isAcceptedClientFile,
   MAX_UPLOAD_BYTES,
+  nativeCaptureAcceptValue,
   newestDocument,
   requiresStudentDecision,
   supportsCamera,
@@ -88,7 +90,7 @@ export function CaptureStep({
     }
 
     if (file.size > MAX_UPLOAD_BYTES) {
-      setFileError("File is too large. Upload a file up to 10 MB.");
+      setFileError("File is too large. Upload a file up to 20 MB.");
       return;
     }
 
@@ -102,7 +104,7 @@ export function CaptureStep({
     setSelectedFile(file);
     setState("preview");
 
-    if (file.type.startsWith("image/")) {
+    if (canPreviewClientFile(file)) {
       setPreviewUrl(URL.createObjectURL(file));
     }
   }
@@ -211,7 +213,7 @@ export function CaptureStep({
               key={`camera-or-file-${inputKey}`}
               className="visually-hidden"
               type="file"
-              accept="image/*"
+              accept={nativeCaptureAcceptValue(item.accepted_formats)}
               capture="environment"
               onChange={handleFileChange}
             />

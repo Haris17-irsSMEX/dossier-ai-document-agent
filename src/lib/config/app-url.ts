@@ -2,6 +2,8 @@ function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+const DEFAULT_PRODUCTION_APP_URL = "https://dossier-ai-document-agent.vercel.app";
+
 function browserSafeBaseUrl(value: string) {
   const trimmed = trimTrailingSlash(value.trim());
 
@@ -61,7 +63,7 @@ export function getAppBaseUrl() {
     return "http://localhost:3000";
   }
 
-  return "http://localhost:3000";
+  return DEFAULT_PRODUCTION_APP_URL;
 }
 
 export function getPublicAppUrl() {

@@ -78,6 +78,10 @@ function buildDocumentLines(items: ChecklistItemRow[]) {
   return items.map((item, index) => `${index + 1}. ${item.document_name}`);
 }
 
+function formatNumberedBlock(lines: string[]) {
+  return lines.length ? lines.join("\n") : "";
+}
+
 function formatSignatureBlock(signature?: string | null) {
   return signature?.trim() || "";
 }
@@ -116,6 +120,8 @@ function buildFollowUpEmailDraft(input: {
     : "";
   const signature = formatSignatureBlock(input.signature);
   const closingLines = ["Regards,", ...consultantLine, signature].filter(Boolean);
+  const footer =
+    "You are receiving this because your education consultant is collecting documents for your application.";
   const missingLines = buildDocumentLines(input.missingItems);
   const problemLines = buildDocumentLines(input.problemItems);
   const verificationLines = input.verificationRequests
@@ -132,7 +138,8 @@ function buildFollowUpEmailDraft(input: {
       intro,
       "Your requested application documents currently look complete from our side.",
       deadlineLine,
-      ...closingLines
+      ...closingLines,
+      footer
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -149,17 +156,18 @@ function buildFollowUpEmailDraft(input: {
       intro,
       problemLines.length
         ? "Please reupload or correct the following documents for your application:"
-        : "A few uploaded documents still need attention.",
-      ...problemLines,
+        : "A few uploaded documents still need attention for your application.",
+      formatNumberedBlock(problemLines),
       uploadLine,
       deadlineLine,
-      ...closingLines
+      ...closingLines,
+      footer
     ]
       .filter(Boolean)
       .join("\n\n");
 
     return {
-      subject: "Action required: Reupload pending application documents",
+      subject: "Document reupload request for your application",
       body
     };
   }
@@ -171,16 +179,17 @@ function buildFollowUpEmailDraft(input: {
       verificationLines.length
         ? "Please review these pending verification items for your application:"
         : "Your application still needs a verification update.",
-      ...verificationLines,
+      formatNumberedBlock(verificationLines),
       uploadLine,
       deadlineLine,
-      ...closingLines
+      ...closingLines,
+      footer
     ]
       .filter(Boolean)
       .join("\n\n");
 
     return {
-      subject: "Action required: Verification update for your application",
+      subject: "Document verification update for your application",
       body
     };
   }
@@ -188,22 +197,21 @@ function buildFollowUpEmailDraft(input: {
   const body = [
     greeting,
     intro,
+    "Your education consultant is collecting documents for your application.",
     missingLines.length
-      ? "Please upload the following pending documents for your application:"
+      ? "Please upload the following requested documents:"
       : "Please upload the remaining requested documents for your application.",
-    ...missingLines,
+    formatNumberedBlock(missingLines),
     uploadLine,
     deadlineLine,
-    ...closingLines
+    ...closingLines,
+    footer
   ]
     .filter(Boolean)
     .join("\n\n");
 
   return {
-    subject:
-      input.messageType === "upload_link"
-        ? "Action required: Upload pending application documents"
-        : "Missing documents for your application",
+    subject: "Document upload request for your application",
     body
   };
 }

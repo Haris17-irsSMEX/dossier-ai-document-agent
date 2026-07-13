@@ -14,6 +14,7 @@ import type {
   WizardState
 } from "./types";
 import {
+  canPreviewClientFile,
   newestDocument,
   requiresStudentDecision,
   uploadDocumentRequest
@@ -66,7 +67,7 @@ export function IdentityScanner({
     }
 
     setCapturedFile(file);
-    setPreviewUrl(file.type.startsWith("image/") ? URL.createObjectURL(file) : null);
+    setPreviewUrl(canPreviewClientFile(file) ? URL.createObjectURL(file) : null);
     setQualityResult(null);
     setUploadError(null);
     setMessage("Photo selected.");

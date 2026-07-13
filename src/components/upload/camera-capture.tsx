@@ -4,7 +4,7 @@ import type { ChangeEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import type { ChecklistItem, UploadStep } from "./types";
-import { acceptValue } from "./upload-utils";
+import { acceptValue, nativeCaptureAcceptValue } from "./upload-utils";
 
 const CAMERA_TIMEOUT_MS = 5000;
 
@@ -256,7 +256,7 @@ export function CameraCapture({
           <input
             className="visually-hidden"
             type="file"
-            accept="image/*"
+            accept={nativeCaptureAcceptValue(item.accepted_formats)}
             capture="environment"
             onChange={handleFallbackFile}
           />

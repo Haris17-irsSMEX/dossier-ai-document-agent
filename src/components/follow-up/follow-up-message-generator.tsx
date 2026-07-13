@@ -816,13 +816,19 @@ export function FollowUpMessageGenerator({
           </div>
         ) : null}
 
+        <p className="muted">
+          Email deliverability depends on the sender mailbox, message history,
+          and domain reputation. For production, use a verified agency domain
+          or connected Gmail/Workspace account.
+        </p>
+
         <div className="form-grid single">
           <label>
             Subject
             <input
               value={emailSubject}
               onChange={(event) => setEmailSubject(event.currentTarget.value)}
-              placeholder="Missing documents for your application"
+              placeholder="Document upload request for your application"
             />
           </label>
         </div>

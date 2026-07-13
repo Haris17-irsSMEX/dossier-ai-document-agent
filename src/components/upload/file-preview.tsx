@@ -20,6 +20,11 @@ export function FilePreview({
       <div>
         <strong>{file.name}</strong>
         <span className="muted">{formatBytes(file.size)}</span>
+        {!previewUrl ? (
+          <span className="muted">
+            Preview not available, but file can still be uploaded.
+          </span>
+        ) : null}
       </div>
     </div>
   );

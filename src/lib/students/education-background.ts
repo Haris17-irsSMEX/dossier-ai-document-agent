@@ -12,6 +12,8 @@ export const educationBackgroundOptions = [
   "Other"
 ] as const;
 
+export const EDUCATION_COMPLETED_OPTIONS = educationBackgroundOptions;
+
 export const programLevelOptions = [
   "Foundation",
   "Diploma",
@@ -50,13 +52,37 @@ function matchesOption(input: string, option: string) {
   );
 }
 
+function splitStoredEducationValue(value?: string | null) {
+  const trimmed = value?.trim() || "";
+
+  if (!trimmed) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((part) => String(part).trim())
+        .filter(Boolean);
+    }
+  } catch {
+    // Older Dossier records use plain text. Keep parsing them below.
+  }
+
+  const separator = trimmed.includes("|") ? "|" : ",";
+
+  return trimmed
+    .split(separator)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
 export function parseEducationBackground(value?: string | null) {
   const selected = new Set<string>();
   const otherEntries: string[] = [];
-  const parts = (value || "")
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
+  const parts = splitStoredEducationValue(value);
 
   for (const part of parts) {
     const normalizedPart = normalizeValue(part);
@@ -119,4 +145,12 @@ export function normalizeEducationBackground(
 
 export function formatEducationBackgroundDisplay(value?: string | null) {
   return normalizeEducationBackground(value);
+}
+
+export function parseEducationCompleted(value?: string | null) {
+  return parseEducationBackground(value).selected;
+}
+
+export function serializeEducationCompleted(values: string[]) {
+  return serializeEducationBackground(values);
 }

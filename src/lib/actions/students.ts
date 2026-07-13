@@ -637,6 +637,7 @@ export async function updateStudentProfileAction(formData: FormData) {
     student.target_country !== payload.target_country ||
     student.intake !== payload.intake ||
     student.program_level !== payload.program_level ||
+    student.education_background !== payload.education_background ||
     student.sponsor_type !== payload.sponsor_type;
 
   const { error: updateError } = await supabase
