@@ -8,6 +8,7 @@ import type { ChecklistItem, UploadedDocument } from "./types";
 import {
   documentProgress,
   formatList,
+  buildUploadSteps,
   statusTone,
   studentDocumentRequestHint,
   studentDocumentRequirementLabel,
@@ -58,6 +59,12 @@ export function DocumentTaskList({
             <div className="document-task-list">
               {phaseItems.map((item) => {
                 const progress = documentProgress(item, documents);
+                const steps = buildUploadSteps(item);
+                const requiredSteps = steps.filter((step) => step.isRequired);
+                const multipartProgress =
+                  item.upload_type === "multi_part"
+                    ? `${progress.uploadedRequired}/${Math.max(requiredSteps.length, 1)} sides uploaded`
+                    : null;
                 const action = progress.hasAnyUpload
                   ? progress.isComplete
                     ? "Review"
@@ -93,6 +100,7 @@ export function DocumentTaskList({
                       {requestHint ? <p className="muted">{requestHint}</p> : null}
                       <div className="document-task-meta">
                         <span>{formatList(item.accepted_formats)}</span>
+                        {multipartProgress ? <span>{multipartProgress}</span> : null}
                         <span>
                           {progress.missingCount
                             ? `${progress.missingCount} missing`

@@ -1084,6 +1084,206 @@ td span,
   justify-content: flex-start;
 }
 
+.document-part-list {
+  display: grid;
+  gap: 10px;
+}
+
+.document-part-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fbfaf8;
+  padding: 12px 14px;
+}
+
+.document-part-row > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.document-part-row > div:first-child span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.document-part-review-form {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.compact-missing-panel {
+  margin-top: 0;
+}
+
+.document-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(31, 25, 20, 0.58);
+  padding: 24px;
+}
+
+.document-viewer-shell {
+  display: grid;
+  width: min(1180px, 100%);
+  max-height: min(92vh, 920px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 24px 70px rgba(37, 30, 24, 0.28);
+}
+
+.document-viewer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--line);
+  padding: 16px 18px;
+}
+
+.document-viewer-header h2 {
+  margin: 2px 0 0;
+  font-size: 18px;
+}
+
+.document-viewer-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.document-viewer-layout.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.document-viewer-tabs {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+  background: #fbfaf8;
+  padding: 14px;
+}
+
+.document-viewer-tabs button {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  color: inherit;
+  cursor: pointer;
+  padding: 10px;
+  text-align: left;
+}
+
+.document-viewer-tabs button.active {
+  border-color: #f1b6a8;
+  background: var(--primary-soft);
+}
+
+.document-viewer-tabs span {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.document-viewer-main {
+  display: grid;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px;
+}
+
+.document-viewer-stage {
+  display: grid;
+  min-height: 440px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #24211f;
+}
+
+.document-viewer-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  transition: transform 160ms ease;
+}
+
+.document-viewer-stage iframe {
+  width: 100%;
+  min-height: 640px;
+  border: 0;
+  background: white;
+}
+
+.document-viewer-placeholder {
+  display: grid;
+  gap: 6px;
+  max-width: 360px;
+  color: white;
+  padding: 20px;
+  text-align: center;
+}
+
+.document-viewer-placeholder p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.74);
+}
+
+.document-viewer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.document-viewer-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.document-viewer-meta > div,
+.document-viewer-scan-summary {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfaf8;
+  padding: 11px 12px;
+}
+
+.document-viewer-meta strong {
+  display: block;
+  overflow-wrap: anywhere;
+  margin-top: 3px;
+  font-size: 13px;
+}
+
+.document-viewer-review-form {
+  margin-top: 0;
+}
+
+.document-viewer-scan-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.document-viewer-scan-summary p {
+  margin: 0;
+}
+
 .document-evidence-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
@@ -1677,8 +1877,36 @@ code {
 
   .document-evidence-grid,
   .scan-grid,
-  .key-value-grid {
+  .key-value-grid,
+  .document-viewer-meta {
     grid-template-columns: 1fr;
+  }
+
+  .document-part-row,
+  .document-viewer-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .document-viewer-overlay {
+    padding: 0;
+  }
+
+  .document-viewer-shell {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .document-viewer-tabs {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(150px, 1fr);
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .document-viewer-stage {
+    min-height: 360px;
   }
 
   .document-task-card,

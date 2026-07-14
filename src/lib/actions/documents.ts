@@ -9,7 +9,10 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/actions/audit";
 import { scanUploadedDocumentFromUploadToken } from "@/lib/actions/document-scans";
 import { requireCurrentProfile } from "@/lib/actions/students";
-import { checklistStatusSchema } from "@/lib/checklists/rules";
+import {
+  checklistStatusSchema,
+  type ChecklistStatus
+} from "@/lib/checklists/rules";
 import {
   mapStorageBucketErrorMessage,
   STUDENT_DOCUMENTS_BUCKET
@@ -37,6 +40,7 @@ export type StudentDocumentListItem = {
   file_size_bytes?: number | null;
   status: string;
   scan_status?: string | null;
+  scan_summary?: string | null;
   scan_error_message?: string | null;
   signed_url?: string | null;
   uploaded_at?: string | null;
@@ -397,7 +401,7 @@ export async function listStudentDocuments(
     .from("documents")
     .select(
       [
-        "id, agency_id, student_id, checklist_item_id, document_part_id, storage_bucket, storage_path, original_filename, mime_type, file_size_bytes, status, scan_status, scan_error_message, uploaded_at, created_at",
+        "id, agency_id, student_id, checklist_item_id, document_part_id, storage_bucket, storage_path, original_filename, mime_type, file_size_bytes, status, scan_status, scan_summary, scan_error_message, uploaded_at, created_at",
         "checklist_item:checklist_items(document_name)",
         "document_part:document_parts(part_name)",
         "document_extractions(*)",
@@ -447,6 +451,169 @@ export async function listStudentDocuments(
   return signedDocuments;
 }
 
+type ReviewDocumentContext = {
+  id: string;
+  checklist_item_id: string;
+  document_part_id?: string | null;
+  checklist_item?: {
+    id: string;
+    upload_type: string;
+    document_parts?: Array<{
+      id: string;
+      is_required: boolean;
+    }> | null;
+  } | null;
+};
+
+type DocumentStatusRow = {
+  id: string;
+  document_part_id?: string | null;
+  status?: ChecklistStatus | null;
+  created_at?: string | null;
+};
+
+function partStatusForDocumentStatus(status: ChecklistStatus) {
+  if (status === "accepted" || status === "officially_verified") {
+    return "accepted";
+  }
+
+  if (status === "rejected") {
+    return "rejected";
+  }
+
+  if (status === "uploaded") {
+    return "uploaded";
+  }
+
+  return "needs_review";
+}
+
+function newestStatusForPart(documents: DocumentStatusRow[], partId: string) {
+  return [...documents]
+    .filter((document) => document.document_part_id === partId)
+    .sort((left, right) => {
+      const leftTime = left.created_at ? new Date(left.created_at).getTime() : 0;
+      const rightTime = right.created_at ? new Date(right.created_at).getTime() : 0;
+
+      return rightTime - leftTime;
+    })[0]?.status;
+}
+
+function parentStatusForReviewedDocuments(input: {
+  uploadType: string;
+  requestedStatus: ChecklistStatus;
+  documents: DocumentStatusRow[];
+  requiredPartIds: string[];
+}) {
+  if (input.uploadType !== "multi_part") {
+    return input.requestedStatus;
+  }
+
+  if (!input.requiredPartIds.length) {
+    return input.documents.length ? input.requestedStatus : "missing";
+  }
+
+  const requiredStatuses = input.requiredPartIds.map((partId) =>
+    newestStatusForPart(input.documents, partId)
+  );
+  const allRequiredUploaded = requiredStatuses.every(Boolean);
+
+  if (!allRequiredUploaded) {
+    return input.documents.length ? "needs_review" : "missing";
+  }
+
+  const allRequiredAccepted = requiredStatuses.every((status) =>
+    status === "accepted" || status === "officially_verified"
+  );
+
+  if (allRequiredAccepted) {
+    return "accepted";
+  }
+
+  const hasRejected = requiredStatuses.some((status) => status === "rejected");
+
+  if (hasRejected) {
+    return "rejected";
+  }
+
+  const hasReviewStatus = requiredStatuses.some(
+    (status) => status && status !== "uploaded"
+  );
+
+  return hasReviewStatus ? "needs_review" : "uploaded";
+}
+
+async function syncChecklistStatusAfterReview(input: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  agencyId: string;
+  studentId: string;
+  documentId: string;
+  status: ChecklistStatus;
+}) {
+  const { data: document, error: documentError } = await input.supabase
+    .from("documents")
+    .select(
+      "id, checklist_item_id, document_part_id, checklist_item:checklist_items(id, upload_type, document_parts(id, is_required))"
+    )
+    .eq("agency_id", input.agencyId)
+    .eq("student_id", input.studentId)
+    .eq("id", input.documentId)
+    .single();
+
+  if (documentError || !document) {
+    throw new Error(documentError?.message || "Document was not found.");
+  }
+
+  const context = document as unknown as ReviewDocumentContext;
+
+  if (context.document_part_id) {
+    const { error: partError } = await input.supabase
+      .from("document_parts")
+      .update({ status: partStatusForDocumentStatus(input.status) })
+      .eq("agency_id", input.agencyId)
+      .eq("id", context.document_part_id)
+      .eq("checklist_item_id", context.checklist_item_id);
+
+    if (partError) {
+      throw new Error(partError.message);
+    }
+  }
+
+  const { data: documents, error: documentsError } = await input.supabase
+    .from("documents")
+    .select("id, document_part_id, status, created_at")
+    .eq("agency_id", input.agencyId)
+    .eq("student_id", input.studentId)
+    .eq("checklist_item_id", context.checklist_item_id);
+
+  if (documentsError) {
+    throw new Error(documentsError.message);
+  }
+
+  const checklistItem = context.checklist_item;
+  const requiredPartIds =
+    checklistItem?.document_parts
+      ?.filter((part) => part.is_required !== false)
+      .map((part) => part.id) ?? [];
+  const parentStatus = parentStatusForReviewedDocuments({
+    uploadType: checklistItem?.upload_type || "single",
+    requestedStatus: input.status,
+    documents: (documents ?? []) as DocumentStatusRow[],
+    requiredPartIds
+  });
+
+  const { error: checklistError } = await input.supabase
+    .from("checklist_items")
+    .update({ status: parentStatus })
+    .eq("agency_id", input.agencyId)
+    .eq("student_id", input.studentId)
+    .eq("id", context.checklist_item_id);
+
+  if (checklistError) {
+    throw new Error(checklistError.message);
+  }
+}
+
 export async function updateDocumentStatusAction(formData: FormData) {
   const parsed = z
     .object({
@@ -479,6 +646,14 @@ export async function updateDocumentStatusAction(formData: FormData) {
     throw new Error(error.message);
   }
 
+  await syncChecklistStatusAfterReview({
+    supabase,
+    agencyId: profile.agency_id,
+    studentId: parsed.student_id,
+    documentId: parsed.id,
+    status: parsed.status
+  });
+
   await writeAuditLog({
     agencyId: profile.agency_id,
     actorProfileId: profile.id,
@@ -489,4 +664,7 @@ export async function updateDocumentStatusAction(formData: FormData) {
   });
 
   revalidatePath(`/students/${parsed.student_id}/documents`);
+  revalidatePath(`/students/${parsed.student_id}/checklist`);
+  revalidatePath(`/students/${parsed.student_id}/export`);
+  revalidatePath("/dashboard");
 }

@@ -126,19 +126,21 @@ export function DocumentCaptureWizard({
         ) : null}
       </div>
       {item.upload_type === "multi_part" ? (
-        <ol className="wizard-steps">
+        <ol className="wizard-steps" aria-label={`${item.document_name} upload steps`}>
           {steps.map((step, index) => {
             const latest = newestDocument(documentsForStep(documents, item, step));
             const isActive = activeStepIndex === index;
 
             return (
               <li className={isActive ? "active" : ""} key={step.id}>
-                <span>{index + 1}</span>
+                <span>{latest ? "✓" : index + 1}</span>
                 <div>
                   <strong>{step.label}</strong>
                   <small>
                     {latest
                       ? "Uploaded"
+                      : isActive
+                        ? "Next to capture"
                       : step.isRequired
                         ? "Required"
                         : "Optional"}
@@ -184,6 +186,8 @@ export function DocumentCaptureWizard({
             item={item}
             step={activeStep}
             documents={documentsForStep(documents, item, activeStep)}
+            stepIndex={item.upload_type === "multi_part" ? activeStepIndex : undefined}
+            totalSteps={item.upload_type === "multi_part" ? steps.length : undefined}
             onUploaded={handleUploaded}
           />
           {!activeStep.isRequired ? (
@@ -199,7 +203,7 @@ export function DocumentCaptureWizard({
           </span>
           <h2>{item.document_name} is complete</h2>
           <p className="muted">
-            Required parts are uploaded. The counselor can now review the files.
+            {item.document_name} uploaded successfully. The counselor can now review the files.
           </p>
           <Link className="button" href={baseHref}>
             Submit document

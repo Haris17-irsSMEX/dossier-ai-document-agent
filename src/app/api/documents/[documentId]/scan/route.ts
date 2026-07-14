@@ -16,7 +16,7 @@ export async function POST(
     return NextResponse.json(
       {
         ok: false,
-        message: "Scan failed - manual review needed."
+        message: "AI scan failed. Manual review needed."
       },
       { status: 500 }
     );

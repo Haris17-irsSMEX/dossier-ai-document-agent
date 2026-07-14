@@ -39,7 +39,8 @@ export const directUploadPrepareSchema = z.object({
 });
 
 export const directUploadCompleteSchema = directUploadPrepareSchema.extend({
-  storagePath: z.string().trim().min(1)
+  storagePath: z.string().trim().min(1),
+  clientQualityWarning: z.string().trim().max(500).optional()
 });
 
 type DirectUploadPrepareInput = z.infer<typeof directUploadPrepareSchema>;
@@ -506,7 +507,7 @@ export async function completeDirectDocumentUpload(input: DirectUploadCompleteIn
       .update({
         status: "needs_review",
         scan_status: "scan_failed",
-        scan_error_message: "Scan failed - manual review needed."
+        scan_error_message: "AI scan failed. Manual review needed."
       })
       .eq("agency_id", uploadToken.agency_id)
       .eq("id", document.id);
@@ -531,8 +532,36 @@ export async function completeDirectDocumentUpload(input: DirectUploadCompleteIn
     scanResult.ok && scanResult.scanStatus
       ? scanResult.scanStatus
       : "scan_failed";
-  const documentStatus =
+  let documentStatus =
     scanResult.documentStatus || (scanResult.ok ? "uploaded" : "needs_review");
+
+  if (input.clientQualityWarning) {
+    documentStatus = "needs_review";
+
+    await supabase.from("document_issues").insert({
+      agency_id: uploadToken.agency_id,
+      student_id: uploadToken.student_id,
+      checklist_item_id: checklistItem.id,
+      document_id: document.id,
+      issue_type: "needs_manual_review",
+      message: input.clientQualityWarning,
+      severity: "medium",
+      evidence: "Student continued after a browser-side quality warning.",
+      recommended_action: "Review the uploaded file manually before accepting it."
+    });
+
+    await supabase
+      .from("documents")
+      .update({
+        status: "needs_review",
+        scan_summary:
+          scanResult.ok && scanStatus === "scanned"
+            ? "AI scan completed, but the upload had a client-side quality warning."
+            : "Manual review needed after client-side quality warning."
+      })
+      .eq("agency_id", uploadToken.agency_id)
+      .eq("id", document.id);
+  }
 
   await updateChecklistProgress({
     agencyId: uploadToken.agency_id,

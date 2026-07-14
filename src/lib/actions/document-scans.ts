@@ -110,12 +110,59 @@ const AZURE_SUPPORTED_MIME_TYPES = new Set([
 const AZURE_SUPPORTED_EXTENSIONS = new Set(["pdf", "jpg", "jpeg", "png"]);
 const HEIC_EXTENSIONS = new Set(["heic", "heif"]);
 const HEIC_MIME_TYPES = new Set(["image/heic", "image/heif"]);
-const SCAN_NOT_CONFIGURED_MESSAGE = "Scan not configured.";
-const UNSUPPORTED_SCAN_TYPE_MESSAGE = "File type not supported for AI scan.";
+const SCAN_NOT_CONFIGURED_MESSAGE = "AI scan not configured.";
+const UNSUPPORTED_SCAN_TYPE_MESSAGE = "This file type needs manual review.";
 const SCAN_FAILED_MANUAL_REVIEW_MESSAGE =
-  "Scan failed - manual review needed.";
+  "AI scan failed. Manual review needed.";
 const HEIC_MANUAL_REVIEW_MESSAGE =
   "HEIC image uploaded. Manual review needed or ask student for JPG/PDF.";
+
+type AzureDiagnosticCode =
+  | "AZURE_CONFIG_MISSING"
+  | "AZURE_FILE_DOWNLOAD_FAILED"
+  | "AZURE_UNSUPPORTED_FILE_TYPE"
+  | "AZURE_EMPTY_FILE_BUFFER"
+  | "AZURE_REQUEST_FAILED"
+  | "AZURE_TIMEOUT"
+  | "AZURE_EMPTY_OCR_RESULT"
+  | "AZURE_SCAN_SUCCESS";
+
+function logAzureDiagnostic(
+  code: AzureDiagnosticCode,
+  metadata: Record<string, unknown>,
+  level: "log" | "warn" | "error" = "error"
+) {
+  console[level](`[document-scan] ${code}`, metadata);
+}
+
+function safeErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function azureConfigurationProblem() {
+  const endpoint = process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT?.trim();
+  const key = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY?.trim();
+
+  if (!endpoint || !key) {
+    return "missing_endpoint_or_key";
+  }
+
+  try {
+    const url = new URL(endpoint);
+
+    if (!["http:", "https:"].includes(url.protocol)) {
+      return "invalid_endpoint_protocol";
+    }
+  } catch {
+    return "invalid_endpoint_url";
+  }
+
+  return null;
+}
 
 function documentExtension(filename: string) {
   return filename.split(".").pop()?.toLowerCase() || "";
@@ -270,6 +317,12 @@ async function downloadDocumentBytes(document: UploadedDocumentRecord) {
     .download(document.storage_path);
 
   if (error || !data) {
+    logAzureDiagnostic("AZURE_FILE_DOWNLOAD_FAILED", {
+      documentId: document.id,
+      studentId: document.student_id,
+      bucket: document.storage_bucket || STUDENT_DOCUMENTS_BUCKET,
+      error: error?.message || "Storage returned no file."
+    });
     throw new Error(
       mapStorageBucketErrorMessage(
         error?.message || "Could not download document."
@@ -277,7 +330,19 @@ async function downloadDocumentBytes(document: UploadedDocumentRecord) {
     );
   }
 
-  return Buffer.from(await data.arrayBuffer());
+  const buffer = Buffer.from(await data.arrayBuffer());
+
+  if (!buffer.length) {
+    logAzureDiagnostic("AZURE_EMPTY_FILE_BUFFER", {
+      documentId: document.id,
+      studentId: document.student_id,
+      filename: document.original_filename,
+      mimeType: document.mime_type
+    });
+    throw new Error("Downloaded document file was empty.");
+  }
+
+  return buffer;
 }
 
 async function resolvePreviousIssues(
@@ -512,11 +577,14 @@ async function scanDocumentWithServerContext(input: {
     metadata: { source: input.source }
   });
 
-  if (!isAzureOcrConfigured()) {
+  const configProblem = azureConfigurationProblem();
+
+  if (configProblem || !isAzureOcrConfigured()) {
     const message = SCAN_NOT_CONFIGURED_MESSAGE;
-    console.error("[document-scan] Azure config missing", {
+    logAzureDiagnostic("AZURE_CONFIG_MISSING", {
       documentId: document.id,
       studentId: document.student_id,
+      reason: configProblem || "missing_configuration",
       requiredEnv: [
         "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
         "AZURE_DOCUMENT_INTELLIGENCE_KEY"
@@ -541,12 +609,12 @@ async function scanDocumentWithServerContext(input: {
   const unsupportedMessage = azureSupportMessage(document);
 
   if (unsupportedMessage) {
-    console.warn("[document-scan] unsupported file type for Azure", {
+    logAzureDiagnostic("AZURE_UNSUPPORTED_FILE_TYPE", {
       documentId: document.id,
       studentId: document.student_id,
       filename: document.original_filename,
       mimeType: document.mime_type
-    });
+    }, "warn");
     await markScanFailure({
       document,
       actorProfileId: input.actorProfileId,
@@ -575,12 +643,12 @@ async function scanDocumentWithServerContext(input: {
     });
 
     if (!ocr.rawText.trim()) {
-      console.warn("[document-scan] Azure returned no text", {
+      logAzureDiagnostic("AZURE_EMPTY_OCR_RESULT", {
         documentId: document.id,
         studentId: document.student_id,
         filename: document.original_filename,
         mimeType: document.mime_type
-      });
+      }, "warn");
       await markScanFailure({
         document,
         actorProfileId: input.actorProfileId,
@@ -757,6 +825,16 @@ async function scanDocumentWithServerContext(input: {
       }
     });
 
+    logAzureDiagnostic("AZURE_SCAN_SUCCESS", {
+      documentId: document.id,
+      studentId: document.student_id,
+      filename: document.original_filename,
+      mimeType: document.mime_type,
+      rawTextLength: ocr.rawText.length,
+      scanStatus,
+      documentStatus: finalStatus
+    }, "log");
+
     revalidatePath(`/students/${document.student_id}/documents`);
 
     return {
@@ -767,7 +845,7 @@ async function scanDocumentWithServerContext(input: {
       documentStatus: finalStatus,
       message:
         scanStatus === "scanned"
-          ? "Document scanned successfully."
+          ? "AI scan complete."
           : "Document scanned and needs consultant review."
     };
   } catch (error) {
@@ -779,13 +857,19 @@ async function scanDocumentWithServerContext(input: {
         studentId: document.student_id
       }
     });
-    console.error("[document-scan] Azure scan pipeline failed", {
+    const errorMessage = safeErrorMessage(error);
+    logAzureDiagnostic(
+      /timed out|timeout/i.test(errorMessage)
+        ? "AZURE_TIMEOUT"
+        : "AZURE_REQUEST_FAILED",
+      {
       documentId: document.id,
       studentId: document.student_id,
       filename: document.original_filename,
       mimeType: document.mime_type,
-      error: error instanceof Error ? error.message : String(error)
-    });
+        error: errorMessage
+      }
+    );
     const message = SCAN_FAILED_MANUAL_REVIEW_MESSAGE;
     await markScanFailure({
       document,

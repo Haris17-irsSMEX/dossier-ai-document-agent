@@ -2,6 +2,10 @@ import Link from "next/link";
 
 import { DocumentIssuesList } from "@/components/documents/document-issues-list";
 import { DocumentStatusBadge } from "@/components/documents/document-status-badge";
+import {
+  DocumentUploadsViewer,
+  type DocumentViewerUpload
+} from "@/components/documents/document-uploads-viewer";
 import { ExtractionView } from "@/components/documents/extraction-view";
 import { ScanDocumentButton } from "@/components/documents/scan-document-button";
 import { StudentTabs } from "@/components/students/student-tabs";
@@ -50,7 +54,7 @@ function scanStatusLabel(status?: string | null) {
     case "needs_review":
       return "Manual review needed";
     case "scan_failed":
-      return "Scan failed - manual review needed";
+      return "AI scan failed. Manual review needed.";
     default:
       return "Not scanned";
   }
@@ -91,6 +95,129 @@ function latestByCreatedAt<TRecord extends RelatedRecord>(records?: TRecord[]) {
     const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
     return bTime - aTime;
   })[0];
+}
+
+type ChecklistPart = {
+  id: string;
+  part_name: string;
+  is_required?: boolean | null;
+  sort_order?: number | null;
+};
+
+type ChecklistItemForDocuments = {
+  id: string;
+  document_name: string;
+  status?: string | null;
+  upload_type?: string | null;
+  document_parts?: ChecklistPart[] | null;
+};
+
+type StudentDocument = Awaited<ReturnType<typeof listStudentDocuments>>[number];
+
+function checklistParts(item: ChecklistItemForDocuments) {
+  return [...(item.document_parts ?? [])].sort((left, right) => {
+    const leftOrder = left.sort_order ?? 0;
+    const rightOrder = right.sort_order ?? 0;
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+
+    return left.part_name.localeCompare(right.part_name);
+  });
+}
+
+function sortedUploads(documents: StudentDocument[]) {
+  return [...documents].sort((left, right) => {
+    const leftTime = left.created_at ? new Date(left.created_at).getTime() : 0;
+    const rightTime = right.created_at ? new Date(right.created_at).getTime() : 0;
+
+    return rightTime - leftTime;
+  });
+}
+
+function latestUploadForPart(documents: StudentDocument[], partId: string) {
+  return sortedUploads(
+    documents.filter((document) => document.document_part_id === partId)
+  )[0];
+}
+
+function aggregateScanStatus(documents: StudentDocument[]) {
+  if (!documents.length) {
+    return null;
+  }
+
+  if (documents.some((document) => document.scan_status === "scanning")) {
+    return "scanning";
+  }
+
+  if (documents.some((document) => document.scan_status === "scan_failed")) {
+    return "scan_failed";
+  }
+
+  if (documents.some((document) => document.scan_status === "needs_review")) {
+    return "needs_review";
+  }
+
+  if (documents.every((document) => document.scan_status === "scanned")) {
+    return "scanned";
+  }
+
+  return "not_scanned";
+}
+
+function uploadLabel(document: StudentDocument, fallback?: string | null) {
+  return document.document_part?.part_name || fallback || "Uploaded file";
+}
+
+function viewerUpload(
+  document: StudentDocument,
+  label: string
+): DocumentViewerUpload {
+  const uploadTime =
+    formatDateTime(document.uploaded_at) ||
+    formatDateTime(document.created_at) ||
+    "Upload date unavailable";
+
+  return {
+    id: document.id,
+    label,
+    originalFilename: document.original_filename,
+    signedUrl: document.signed_url,
+    mimeType: document.mime_type,
+    fileSizeLabel: formatBytes(document.file_size_bytes),
+    uploadedAtLabel: uploadTime,
+    status: document.status,
+    scanStatus: document.scan_status,
+    scanStatusLabel: scanStatusLabel(document.scan_status),
+    scanSummary: document.scan_summary,
+    extraction: latestByCreatedAt(document.document_extractions),
+    issues: document.document_issues ?? []
+  };
+}
+
+function multipartSummary(input: {
+  item: ChecklistItemForDocuments;
+  documents: StudentDocument[];
+}) {
+  const parts = checklistParts(input.item);
+  const requiredParts = parts.filter((part) => part.is_required !== false);
+  const uploadedRequiredCount = requiredParts.filter((part) =>
+    input.documents.some((document) => document.document_part_id === part.id)
+  ).length;
+  const requiredTotal = Math.max(requiredParts.length, 1);
+  const missingRequiredParts = requiredParts.filter(
+    (part) =>
+      !input.documents.some((document) => document.document_part_id === part.id)
+  );
+
+  return {
+    parts,
+    requiredParts,
+    uploadedRequiredCount,
+    requiredTotal,
+    missingRequiredParts
+  };
 }
 
 export default async function StudentDocumentsPage({
@@ -189,21 +316,36 @@ export default async function StudentDocumentsPage({
 
             <div className="document-requested-list">
               {visibleItems.map((item) => {
+                const checklistItem = item as ChecklistItemForDocuments;
                 const itemDocuments = uploadsByChecklistItemId.get(item.id) || [];
                 const hasUploads = itemDocuments.length > 0;
-                const sortedDocuments = [...itemDocuments].sort((left, right) => {
-                  const leftTime = left.created_at
-                    ? new Date(left.created_at).getTime()
-                    : 0;
-                  const rightTime = right.created_at
-                    ? new Date(right.created_at).getTime()
-                    : 0;
-
-                  return rightTime - leftTime;
-                });
+                const sortedDocuments = sortedUploads(itemDocuments);
                 const latestDocument = sortedDocuments[0];
-                const currentStatus = latestDocument?.status || item.status || "missing";
+                const currentStatus =
+                  checklistItem.status || latestDocument?.status || "missing";
+                const aggregateStatus = aggregateScanStatus(sortedDocuments);
                 const isHighlighted = requestId === item.id;
+                const isMultipart = checklistItem.upload_type === "multi_part";
+                const {
+                  parts,
+                  uploadedRequiredCount,
+                  requiredTotal,
+                  missingRequiredParts
+                } = multipartSummary({
+                  item: checklistItem,
+                  documents: itemDocuments
+                });
+                const headerSummary = isMultipart
+                  ? `${uploadedRequiredCount}/${requiredTotal} sides uploaded`
+                  : hasUploads
+                    ? `${itemDocuments.length} file${itemDocuments.length === 1 ? "" : "s"} uploaded`
+                    : "No upload yet";
+                const viewerUploads = sortedDocuments.map((document) =>
+                  viewerUpload(
+                    document,
+                    uploadLabel(document, isMultipart ? "Uploaded side" : "Uploaded file")
+                  )
+                );
 
                 return (
                   <article
@@ -214,16 +356,20 @@ export default async function StudentDocumentsPage({
                     <div className="section-title">
                       <div>
                         <h3>{item.document_name}</h3>
-                        <p>
-                          {hasUploads
-                            ? `${itemDocuments.length} upload${itemDocuments.length === 1 ? "" : "s"}`
-                            : "No upload yet"}
-                        </p>
+                        <p>{headerSummary}</p>
                       </div>
                       <div className="button-row">
                         <DocumentStatusBadge status={currentStatus} />
-                        {latestDocument ? (
-                          <ScanStatusBadge status={latestDocument.scan_status} />
+                        {aggregateStatus ? (
+                          <ScanStatusBadge status={aggregateStatus} />
+                        ) : null}
+                        {hasUploads ? (
+                          <DocumentUploadsViewer
+                            documentName={item.document_name}
+                            studentId={id}
+                            uploads={viewerUploads}
+                            buttonLabel="View uploads"
+                          />
                         ) : null}
                       </div>
                     </div>
@@ -242,6 +388,101 @@ export default async function StudentDocumentsPage({
                       </div>
                     ) : (
                       <div className="document-upload-list">
+                        {isMultipart ? (
+                          <div className="document-part-list">
+                            {parts.map((part) => {
+                              const document = latestUploadForPart(itemDocuments, part.id);
+                              const upload = document
+                                ? viewerUpload(document, part.part_name)
+                                : null;
+
+                              return (
+                                <div className="document-part-row" key={part.id}>
+                                  <div>
+                                    <strong>{part.part_name}</strong>
+                                    <span>
+                                      {document
+                                        ? `${formatDateTime(document.uploaded_at) ||
+                                            formatDateTime(document.created_at) ||
+                                            "Uploaded"} - ${formatBytes(document.file_size_bytes)}`
+                                        : part.is_required === false
+                                          ? "Optional"
+                                          : "Missing"}
+                                    </span>
+                                  </div>
+                                  <div className="button-row">
+                                    {document ? (
+                                      <>
+                                        <span className="chip success">Uploaded</span>
+                                        <ScanStatusBadge status={document.scan_status} />
+                                        <DocumentUploadsViewer
+                                          documentName={item.document_name}
+                                          studentId={id}
+                                          uploads={viewerUploads}
+                                          initialUploadId={document.id}
+                                          buttonLabel="View"
+                                        />
+                                        <ScanDocumentButton
+                                          documentId={document.id}
+                                          scanStatus={document.scan_status}
+                                        />
+                                      </>
+                                    ) : (
+                                      <span
+                                        className={`chip ${part.is_required === false ? "info" : "danger"}`}
+                                      >
+                                        {part.is_required === false
+                                          ? "Optional"
+                                          : "Missing"}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {upload ? (
+                                    <form
+                                      action={updateDocumentStatusAction}
+                                      className="inline-status-form document-part-review-form"
+                                    >
+                                      <input type="hidden" name="id" value={upload.id} />
+                                      <input type="hidden" name="student_id" value={id} />
+                                      <select name="status" defaultValue={upload.status}>
+                                        {reviewStatuses.map((status) => (
+                                          <option key={status} value={status}>
+                                            {status.replaceAll("_", " ")}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        className="button secondary"
+                                        type="submit"
+                                      >
+                                        Save review status
+                                      </button>
+                                    </form>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                            {missingRequiredParts.length ? (
+                              <div className="document-missing-panel compact-missing-panel">
+                                <div>
+                                  <strong>Missing required side</strong>
+                                  <p>
+                                    {missingRequiredParts
+                                      .map((part) => part.part_name)
+                                      .join(", ")}
+                                  </p>
+                                </div>
+                                <Link
+                                  className="button secondary"
+                                  href={`/students/${id}/follow-up`}
+                                >
+                                  Send follow-up
+                                </Link>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+
                         {sortedDocuments.map((document, index) => {
                           const extraction = latestByCreatedAt(
                             document.document_extractions
@@ -251,6 +492,10 @@ export default async function StudentDocumentsPage({
                             formatDateTime(document.uploaded_at) ||
                             formatDateTime(document.created_at) ||
                             "Upload date unavailable";
+
+                          if (isMultipart && document.document_part_id) {
+                            return null;
+                          }
 
                           return (
                             <div className="document-upload-card" key={document.id}>
@@ -274,24 +519,13 @@ export default async function StudentDocumentsPage({
                               </div>
 
                               <div className="document-file-actions">
-                                {document.signed_url ? (
-                                  <a
-                                    className="button secondary compact-button"
-                                    href={document.signed_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                  >
-                                    View file
-                                  </a>
-                                ) : (
-                                  <button
-                                    className="button secondary compact-button"
-                                    type="button"
-                                    disabled
-                                  >
-                                    View file unavailable
-                                  </button>
-                                )}
+                                <DocumentUploadsViewer
+                                  documentName={item.document_name}
+                                  studentId={id}
+                                  uploads={viewerUploads}
+                                  initialUploadId={document.id}
+                                  buttonLabel="View file"
+                                />
                                 <ScanDocumentButton
                                   documentId={document.id}
                                   scanStatus={document.scan_status}

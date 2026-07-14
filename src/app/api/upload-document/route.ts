@@ -475,7 +475,7 @@ export async function POST(request: Request) {
         .update({
           status: "needs_review",
           scan_status: "scan_failed",
-          scan_error_message: "Scan failed - manual review needed."
+          scan_error_message: "AI scan failed. Manual review needed."
         })
         .eq("agency_id", uploadToken.agency_id)
         .eq("id", document.id);

@@ -68,6 +68,9 @@ export async function uploadDocumentRequest(formData: FormData) {
     const token = String(formData.get("token") || "");
     const checklistItemId = String(formData.get("checklistItemId") || "");
     const documentPartId = String(formData.get("documentPartId") || "");
+    const clientQualityWarning = String(
+      formData.get("clientQualityWarning") || ""
+    );
 
     if (!(file instanceof File) || file.size <= 0) {
       return {
@@ -125,6 +128,7 @@ export async function uploadDocumentRequest(formData: FormData) {
       "/api/upload-document/complete",
       {
         ...metadata,
+        clientQualityWarning: clientQualityWarning || undefined,
         storagePath: prepared.result.storagePath
       },
       controller.signal

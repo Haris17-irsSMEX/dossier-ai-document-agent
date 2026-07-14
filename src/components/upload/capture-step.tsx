@@ -5,6 +5,11 @@ import { useEffect, useState } from "react";
 
 import { FilePreview } from "./file-preview";
 import { ScanFeedback } from "./scan-feedback";
+import {
+  ScanQualityCheck,
+  analyzeImageQuality,
+  type QualityResult
+} from "./scan-quality-check";
 import type {
   ChecklistItem,
   UploadedDocument,
@@ -38,12 +43,16 @@ export function CaptureStep({
   item,
   step,
   documents,
+  stepIndex,
+  totalSteps,
   onUploaded
 }: {
   token: string;
   item: ChecklistItem;
   step: UploadStep;
   documents: UploadedDocument[];
+  stepIndex?: number;
+  totalSteps?: number;
   onUploaded: (document: UploadedDocument, shouldAdvance: boolean) => void;
 }) {
   const latest = newestDocument(documents);
@@ -54,6 +63,8 @@ export function CaptureStep({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [qualityResult, setQualityResult] = useState<QualityResult | null>(null);
+  const [qualityWarning, setQualityWarning] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(
     feedbackForDocument(latest)
   );
@@ -85,6 +96,8 @@ export function CaptureStep({
     setSelectedFile(null);
     setFileError(null);
     setUploadError(null);
+    setQualityResult(null);
+    setQualityWarning(null);
     setMessage(null);
     setStatus(null);
     setState("selecting_file");
@@ -112,6 +125,33 @@ export function CaptureStep({
     if (canPreviewClientFile(file)) {
       setPreviewUrl(URL.createObjectURL(file));
     }
+
+    const extension = file.name.split(".").pop()?.toLowerCase() || "";
+
+    if (["heic", "heif"].includes(extension) || ["image/heic", "image/heif"].includes(file.type.toLowerCase())) {
+      setQualityWarning(
+        "HEIC uploaded. Manual review may be needed. JPG or PDF is preferred."
+      );
+      return;
+    }
+
+    if (file.type.startsWith("image/") && canPreviewClientFile(file)) {
+      setState("checking_quality");
+      setMessage("Checking image quality...");
+
+      analyzeImageQuality(file)
+        .then((result) => {
+          setQualityResult(result);
+          setQualityWarning(result.ok ? null : result.message);
+          setState("preview");
+          setMessage(result.ok ? "Image looks clear enough to upload." : result.message);
+        })
+        .catch((error) => {
+          console.error("[capture-step] quality check failed", error);
+          setState("preview");
+          setMessage("Quality check could not run. You can still upload this file.");
+        });
+    }
   }
 
   function clearSelectedFile() {
@@ -123,6 +163,8 @@ export function CaptureStep({
     setSelectedFile(null);
     setFileError(null);
     setUploadError(null);
+    setQualityResult(null);
+    setQualityWarning(null);
     setMessage(null);
     setStatus(null);
     setState(latest ? "step_complete" : "idle");
@@ -144,6 +186,10 @@ export function CaptureStep({
 
     if (step.part?.id) {
       formData.append("documentPartId", step.part.id);
+    }
+
+    if (qualityWarning) {
+      formData.append("clientQualityWarning", qualityWarning);
     }
 
     setState("uploading");
@@ -221,8 +267,21 @@ export function CaptureStep({
     <form className="capture-step" onSubmit={handleSubmit}>
       <div className="capture-step-header">
         <div>
-          <span className="muted">{studentStepRequirementLabel(item, step)}</span>
-          <h2>{step.label}</h2>
+          <span className="muted">
+            {typeof stepIndex === "number" && totalSteps
+              ? `Step ${stepIndex + 1} of ${totalSteps}`
+              : studentStepRequirementLabel(item, step)}
+          </span>
+          <h2>
+            {typeof stepIndex === "number" && totalSteps
+              ? `Capture ${step.label.toLowerCase()}`
+              : step.label}
+          </h2>
+          {typeof stepIndex === "number" && totalSteps ? (
+            <p className="muted">
+              Place {item.document_name} {step.label.toLowerCase()} inside the frame.
+            </p>
+          ) : null}
         </div>
         {latest ? <span className="chip success">Already uploaded</span> : null}
       </div>
@@ -259,6 +318,16 @@ export function CaptureStep({
       ) : null}
       {selectedFile ? (
         <FilePreview file={selectedFile} previewUrl={previewUrl} />
+      ) : null}
+      <ScanQualityCheck
+        result={qualityResult}
+        isChecking={state === "checking_quality"}
+      />
+      {qualityWarning && !qualityResult ? (
+        <div className="scan-quality-card warning">
+          <strong>Manual review may be needed</strong>
+          <p>{qualityWarning}</p>
+        </div>
       ) : null}
       {selectedFile ? (
         <div className="button-row">
@@ -302,13 +371,23 @@ export function CaptureStep({
           <button
             className="button"
             type="submit"
-            disabled={!selectedFile || Boolean(fileError) || state === "uploading" || state === "scanning"}
+            disabled={
+              !selectedFile ||
+              Boolean(fileError) ||
+              state === "checking_quality" ||
+              state === "uploading" ||
+              state === "scanning"
+            }
           >
-            {state === "uploading" || state === "scanning"
+            {state === "checking_quality"
+              ? "Checking..."
+              : state === "uploading" || state === "scanning"
               ? "Working..."
-              : latest
-                ? "Use this file / Replace"
-                : "Use this file / Upload"}
+              : qualityWarning
+                ? "Continue anyway"
+                : latest
+                  ? "Use this file / Replace"
+                  : "Use this file / Upload"}
           </button>
         </div>
       ) : null}
