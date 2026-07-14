@@ -31,7 +31,7 @@ function scanLabel(status?: string | null) {
     case "needs_review":
       return "Needs review";
     case "scan_failed":
-      return "AI scan unavailable";
+      return "Manual review needed";
     default:
       return "Not uploaded";
   }

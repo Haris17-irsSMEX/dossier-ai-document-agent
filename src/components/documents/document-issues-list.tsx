@@ -14,6 +14,20 @@ const severityTone: Record<string, string> = {
   high: "danger"
 };
 
+function friendlyIssueText(value?: string | null) {
+  const text = value?.trim();
+
+  if (!text) {
+    return null;
+  }
+
+  if (/azure|invalid request|ocr failed|timeout|exception/i.test(text)) {
+    return "Automated scan could not complete. Please review this file manually.";
+  }
+
+  return text;
+}
+
 export function DocumentIssuesList({ issues }: { issues: DocumentIssue[] }) {
   const activeIssues = issues.filter((issue) => !issue.is_resolved);
 
@@ -36,12 +50,12 @@ export function DocumentIssuesList({ issues }: { issues: DocumentIssue[] }) {
             </span>
             <span className="chip info">{issue.issue_type.replaceAll("_", " ")}</span>
           </div>
-          <strong>{issue.message}</strong>
-          {issue.evidence ? <p>{issue.evidence}</p> : null}
-          {issue.recommended_action ? (
+          <strong>{friendlyIssueText(issue.message) || "Manual review needed."}</strong>
+          {friendlyIssueText(issue.evidence) ? <p>{friendlyIssueText(issue.evidence)}</p> : null}
+          {friendlyIssueText(issue.recommended_action) ? (
             <p>
               <span className="muted">Recommended action: </span>
-              {issue.recommended_action}
+              {friendlyIssueText(issue.recommended_action)}
             </p>
           ) : null}
         </div>

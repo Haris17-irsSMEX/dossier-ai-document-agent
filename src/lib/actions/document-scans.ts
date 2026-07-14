@@ -110,10 +110,12 @@ const AZURE_SUPPORTED_MIME_TYPES = new Set([
 const AZURE_SUPPORTED_EXTENSIONS = new Set(["pdf", "jpg", "jpeg", "png"]);
 const HEIC_EXTENSIONS = new Set(["heic", "heif"]);
 const HEIC_MIME_TYPES = new Set(["image/heic", "image/heif"]);
-const SAFE_SCAN_UNAVAILABLE_MESSAGE =
-  "AI scan unavailable. Manual review needed.";
+const SCAN_NOT_CONFIGURED_MESSAGE = "Scan not configured.";
+const UNSUPPORTED_SCAN_TYPE_MESSAGE = "File type not supported for AI scan.";
+const SCAN_FAILED_MANUAL_REVIEW_MESSAGE =
+  "Scan failed - manual review needed.";
 const HEIC_MANUAL_REVIEW_MESSAGE =
-  "AI scan unavailable. Manual review needed. This file type may require manual review.";
+  "HEIC image uploaded. Manual review needed or ask student for JPG/PDF.";
 
 function documentExtension(filename: string) {
   return filename.split(".").pop()?.toLowerCase() || "";
@@ -142,7 +144,7 @@ function azureSupportMessage(document: UploadedDocumentRecord) {
     return HEIC_MANUAL_REVIEW_MESSAGE;
   }
 
-  return SAFE_SCAN_UNAVAILABLE_MESSAGE;
+  return UNSUPPORTED_SCAN_TYPE_MESSAGE;
 }
 
 function scanStatusForDocumentStatus(status: ChecklistStatus) {
@@ -511,7 +513,15 @@ async function scanDocumentWithServerContext(input: {
   });
 
   if (!isAzureOcrConfigured()) {
-    const message = SAFE_SCAN_UNAVAILABLE_MESSAGE;
+    const message = SCAN_NOT_CONFIGURED_MESSAGE;
+    console.error("[document-scan] Azure config missing", {
+      documentId: document.id,
+      studentId: document.student_id,
+      requiredEnv: [
+        "AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT",
+        "AZURE_DOCUMENT_INTELLIGENCE_KEY"
+      ]
+    });
     await markScanFailure({
       document,
       actorProfileId: input.actorProfileId,
@@ -531,6 +541,12 @@ async function scanDocumentWithServerContext(input: {
   const unsupportedMessage = azureSupportMessage(document);
 
   if (unsupportedMessage) {
+    console.warn("[document-scan] unsupported file type for Azure", {
+      documentId: document.id,
+      studentId: document.student_id,
+      filename: document.original_filename,
+      mimeType: document.mime_type
+    });
     await markScanFailure({
       document,
       actorProfileId: input.actorProfileId,
@@ -557,6 +573,31 @@ async function scanDocumentWithServerContext(input: {
       mimeType: document.mime_type,
       filename: document.original_filename
     });
+
+    if (!ocr.rawText.trim()) {
+      console.warn("[document-scan] Azure returned no text", {
+        documentId: document.id,
+        studentId: document.student_id,
+        filename: document.original_filename,
+        mimeType: document.mime_type
+      });
+      await markScanFailure({
+        document,
+        actorProfileId: input.actorProfileId,
+        message: SCAN_FAILED_MANUAL_REVIEW_MESSAGE
+      });
+      revalidatePath(`/students/${document.student_id}/documents`);
+
+      return {
+        ok: false,
+        documentId: document.id,
+        studentId: document.student_id,
+        scanStatus: "scan_failed",
+        documentStatus: "needs_review",
+        message: SCAN_FAILED_MANUAL_REVIEW_MESSAGE
+      };
+    }
+
     const requiredParts = requiredPartsForItem(document.checklist_item);
     const { data: extraction, error: extractionError } = await supabase
       .from("document_extractions")
@@ -738,7 +779,14 @@ async function scanDocumentWithServerContext(input: {
         studentId: document.student_id
       }
     });
-    const message = SAFE_SCAN_UNAVAILABLE_MESSAGE;
+    console.error("[document-scan] Azure scan pipeline failed", {
+      documentId: document.id,
+      studentId: document.student_id,
+      filename: document.original_filename,
+      mimeType: document.mime_type,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    const message = SCAN_FAILED_MANUAL_REVIEW_MESSAGE;
     await markScanFailure({
       document,
       actorProfileId: input.actorProfileId,

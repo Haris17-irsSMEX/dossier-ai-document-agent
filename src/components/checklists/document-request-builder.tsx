@@ -96,9 +96,12 @@ function RequestedDocumentRow({
         </div>
       </div>
       <div className="phase-request-actions">
-        <Link className="button secondary compact-button" href={`/students/${studentId}/documents`}>
+        <Link
+          className="button secondary compact-button"
+          href={`/students/${studentId}/documents?requestId=${item.id}#request-${item.id}`}
+        >
           <FileText aria-hidden="true" size={15} />
-          View uploads
+          Open in Documents
         </Link>
         <form action={markChecklistItemNotNeededAction}>
           <input type="hidden" name="id" value={item.id} />

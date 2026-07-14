@@ -32,6 +32,20 @@ function textPreview(value?: string | null) {
   return trimmed.length > 900 ? `${trimmed.slice(0, 900)}...` : trimmed;
 }
 
+function friendlyScanMessage(value?: string | null) {
+  const text = value?.trim();
+
+  if (!text) {
+    return "Automated scan could not complete. Please review this file manually.";
+  }
+
+  if (/azure|invalid request|ocr failed|timeout|exception/i.test(text)) {
+    return "Automated scan could not complete. Please review this file manually.";
+  }
+
+  return text;
+}
+
 export function ExtractionView({ extraction }: { extraction?: Extraction }) {
   if (!extraction) {
     return (
@@ -51,8 +65,8 @@ export function ExtractionView({ extraction }: { extraction?: Extraction }) {
   return (
     <div className="extraction-view">
       {extraction.status === "failed" || extraction.error_message ? (
-        <div className="alert error">
-          {extraction.error_message || "Document scan failed."}
+        <div className="alert warning">
+          {friendlyScanMessage(extraction.error_message)}
         </div>
       ) : null}
       <div className="scan-grid">

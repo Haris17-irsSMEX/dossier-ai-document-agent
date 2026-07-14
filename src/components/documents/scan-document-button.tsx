@@ -24,15 +24,23 @@ export function ScanDocumentButton({
       const response = await fetch(`/api/documents/${documentId}/scan`, {
         method: "POST"
       });
-      const result = (await response.json()) as {
+      const result = (await response.json().catch(() => ({
+        ok: false,
+        message: `Document scan returned HTTP ${response.status}.`
+      }))) as {
         ok?: boolean;
         message?: string;
       };
 
-      if (!response.ok || result.ok === false) {
+      if (!response.ok) {
         setError(result.message || "Document scan failed.");
       } else {
-        setMessage(result.message || "Document scanned.");
+        setMessage(
+          result.message ||
+            (result.ok === false
+              ? "Automated scan could not complete. Please review this file manually."
+              : "Scan complete.")
+        );
       }
 
       router.refresh();

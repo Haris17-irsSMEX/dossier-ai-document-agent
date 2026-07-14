@@ -12,11 +12,11 @@ export async function POST(
 
     return NextResponse.json(result);
   } catch (error) {
+    console.error("[document-scan] route failed", error);
     return NextResponse.json(
       {
         ok: false,
-        message:
-          error instanceof Error ? error.message : "Document scan failed."
+        message: "Scan failed - manual review needed."
       },
       { status: 500 }
     );

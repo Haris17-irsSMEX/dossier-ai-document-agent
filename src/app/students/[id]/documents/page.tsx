@@ -7,7 +7,6 @@ import { ScanDocumentButton } from "@/components/documents/scan-document-button"
 import { StudentTabs } from "@/components/students/student-tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import {
-  listChecklistItems,
   listRequestedChecklistItems
 } from "@/lib/actions/checklists";
 import {
@@ -20,6 +19,7 @@ import {
   isChecklistReady,
   needsChecklistReview
 } from "@/lib/checklists/request-logic";
+import { formatDateTime } from "@/lib/date";
 
 const reviewStatuses = [
   "accepted",
@@ -50,7 +50,7 @@ function scanStatusLabel(status?: string | null) {
     case "needs_review":
       return "Manual review needed";
     case "scan_failed":
-      return "AI scan unavailable";
+      return "Scan failed - manual review needed";
     default:
       return "Not scanned";
   }
@@ -63,6 +63,22 @@ function ScanStatusBadge({ status }: { status?: string | null }) {
       {scanStatusLabel(value)}
     </span>
   );
+}
+
+function formatBytes(bytes?: number | null) {
+  if (!bytes || bytes < 0) {
+    return "Size unavailable";
+  }
+
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 type RelatedRecord = {
@@ -78,15 +94,17 @@ function latestByCreatedAt<TRecord extends RelatedRecord>(records?: TRecord[]) {
 }
 
 export default async function StudentDocumentsPage({
-  params
+  params,
+  searchParams
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ requestId?: string }>;
 }) {
   const { id } = await params;
-  const [student, requestedItems, allItems, documents] = await Promise.all([
+  const { requestId } = (await searchParams) ?? {};
+  const [student, requestedItems, documents] = await Promise.all([
     getStudent(id),
     listRequestedChecklistItems(id),
-    listChecklistItems(id),
     listStudentDocuments(id)
   ]);
 
@@ -98,14 +116,6 @@ export default async function StudentDocumentsPage({
     uploadsByChecklistItemId.set(document.checklist_item_id, current);
   }
 
-  const historicalItems = allItems.filter((item) => {
-    if (item.is_requested === true && item.visible_to_student === true && item.is_archived !== true) {
-      return false;
-    }
-
-    return (uploadsByChecklistItemId.get(item.id)?.length || 0) > 0;
-  });
-
   const requestedSummary = {
     total: requestedItems.length,
     missing: requestedItems.filter((item) => (item.status || "missing") === "missing").length,
@@ -114,7 +124,7 @@ export default async function StudentDocumentsPage({
     needsReview: requestedItems.filter(needsChecklistReview).length
   };
 
-  const visibleItems = [...requestedItems, ...historicalItems];
+  const visibleItems = requestedItems;
 
   return (
     <main className="app-shell">
@@ -180,19 +190,27 @@ export default async function StudentDocumentsPage({
             <div className="document-requested-list">
               {visibleItems.map((item) => {
                 const itemDocuments = uploadsByChecklistItemId.get(item.id) || [];
-                const latestDocument = latestByCreatedAt(itemDocuments);
-                const latestExtraction = latestDocument
-                  ? latestByCreatedAt(latestDocument.document_extractions)
-                  : null;
-                const issues = latestDocument?.document_issues ?? [];
                 const hasUploads = itemDocuments.length > 0;
-                const isHistoricalOnly = !requestedItems.some(
-                  (requestedItem) => requestedItem.id === item.id
-                );
+                const sortedDocuments = [...itemDocuments].sort((left, right) => {
+                  const leftTime = left.created_at
+                    ? new Date(left.created_at).getTime()
+                    : 0;
+                  const rightTime = right.created_at
+                    ? new Date(right.created_at).getTime()
+                    : 0;
+
+                  return rightTime - leftTime;
+                });
+                const latestDocument = sortedDocuments[0];
                 const currentStatus = latestDocument?.status || item.status || "missing";
+                const isHighlighted = requestId === item.id;
 
                 return (
-                  <article className="document-review-card" key={item.id}>
+                  <article
+                    className={`document-review-card ${isHighlighted ? "is-highlighted" : ""}`}
+                    id={`request-${item.id}`}
+                    key={item.id}
+                  >
                     <div className="section-title">
                       <div>
                         <h3>{item.document_name}</h3>
@@ -203,9 +221,6 @@ export default async function StudentDocumentsPage({
                         </p>
                       </div>
                       <div className="button-row">
-                        {isHistoricalOnly ? (
-                          <span className="chip info">Not currently requested</span>
-                        ) : null}
                         <DocumentStatusBadge status={currentStatus} />
                         {latestDocument ? (
                           <ScanStatusBadge status={latestDocument.scan_status} />
@@ -220,54 +235,104 @@ export default async function StudentDocumentsPage({
                           <p>Waiting for student upload.</p>
                         </div>
                         <div className="button-row">
-                          <Link className="button secondary" href={`/students/${id}/checklist`}>
-                            Stop requesting
-                          </Link>
                           <Link className="button secondary" href={`/students/${id}/follow-up`}>
                             Send follow-up
                           </Link>
                         </div>
                       </div>
-                    ) : latestDocument ? (
-                      <>
-                        <div className="document-upload-meta">
-                          <span>{latestDocument.original_filename}</span>
-                          <div className="button-row">
-                            <Link className="button secondary compact-button" href={`/students/${id}/checklist`}>
-                              View uploads
-                            </Link>
-                            <ScanDocumentButton
-                              documentId={latestDocument.id}
-                              scanStatus={latestDocument.scan_status}
-                            />
-                          </div>
-                        </div>
-                        <form action={updateDocumentStatusAction} className="inline-status-form">
-                          <input type="hidden" name="id" value={latestDocument.id} />
-                          <input type="hidden" name="student_id" value={id} />
-                          <select name="status" defaultValue={latestDocument.status}>
-                            {reviewStatuses.map((status) => (
-                              <option key={status} value={status}>
-                                {status.replaceAll("_", " ")}
-                              </option>
-                            ))}
-                          </select>
-                          <button className="button secondary" type="submit">
-                            Save review status
-                          </button>
-                        </form>
-                        <div className="document-evidence-grid">
-                          <div>
-                            <h4>Extracted evidence</h4>
-                            <ExtractionView extraction={latestExtraction || undefined} />
-                          </div>
-                          <div>
-                            <h4>Issues</h4>
-                            <DocumentIssuesList issues={issues} />
-                          </div>
-                        </div>
-                      </>
-                    ) : null}
+                    ) : (
+                      <div className="document-upload-list">
+                        {sortedDocuments.map((document, index) => {
+                          const extraction = latestByCreatedAt(
+                            document.document_extractions
+                          );
+                          const issues = document.document_issues ?? [];
+                          const uploadTime =
+                            formatDateTime(document.uploaded_at) ||
+                            formatDateTime(document.created_at) ||
+                            "Upload date unavailable";
+
+                          return (
+                            <div className="document-upload-card" key={document.id}>
+                              <div className="document-upload-header">
+                                <div>
+                                  <strong>
+                                    {document.document_part?.part_name
+                                      ? `${document.document_part.part_name}: `
+                                      : ""}
+                                    {document.original_filename}
+                                  </strong>
+                                  <p>
+                                    {uploadTime} - {formatBytes(document.file_size_bytes)}
+                                    {index === 0 ? " - Latest upload" : ""}
+                                  </p>
+                                </div>
+                                <div className="button-row">
+                                  <DocumentStatusBadge status={document.status} />
+                                  <ScanStatusBadge status={document.scan_status} />
+                                </div>
+                              </div>
+
+                              <div className="document-file-actions">
+                                {document.signed_url ? (
+                                  <a
+                                    className="button secondary compact-button"
+                                    href={document.signed_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    View file
+                                  </a>
+                                ) : (
+                                  <button
+                                    className="button secondary compact-button"
+                                    type="button"
+                                    disabled
+                                  >
+                                    View file unavailable
+                                  </button>
+                                )}
+                                <ScanDocumentButton
+                                  documentId={document.id}
+                                  scanStatus={document.scan_status}
+                                />
+                              </div>
+
+                              <form
+                                action={updateDocumentStatusAction}
+                                className="inline-status-form"
+                              >
+                                <input type="hidden" name="id" value={document.id} />
+                                <input type="hidden" name="student_id" value={id} />
+                                <select name="status" defaultValue={document.status}>
+                                  {reviewStatuses.map((status) => (
+                                    <option key={status} value={status}>
+                                      {status.replaceAll("_", " ")}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button className="button secondary" type="submit">
+                                  Save review status
+                                </button>
+                              </form>
+
+                              {(extraction || issues.length || document.scan_status === "scan_failed") ? (
+                                <div className="document-evidence-grid">
+                                  <div>
+                                    <h4>Scan output</h4>
+                                    <ExtractionView extraction={extraction || undefined} />
+                                  </div>
+                                  <div>
+                                    <h4>Issues</h4>
+                                    <DocumentIssuesList issues={issues} />
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </article>
                 );
               })}

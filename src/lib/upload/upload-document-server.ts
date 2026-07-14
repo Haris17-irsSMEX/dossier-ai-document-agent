@@ -506,7 +506,7 @@ export async function completeDirectDocumentUpload(input: DirectUploadCompleteIn
       .update({
         status: "needs_review",
         scan_status: "scan_failed",
-        scan_error_message: "AI scan unavailable. Manual review needed."
+        scan_error_message: "Scan failed - manual review needed."
       })
       .eq("agency_id", uploadToken.agency_id)
       .eq("id", document.id);

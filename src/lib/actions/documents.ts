@@ -38,6 +38,8 @@ export type StudentDocumentListItem = {
   status: string;
   scan_status?: string | null;
   scan_error_message?: string | null;
+  signed_url?: string | null;
+  uploaded_at?: string | null;
   created_at?: string | null;
   checklist_item?: {
     document_name?: string | null;
@@ -91,6 +93,11 @@ type UploadPortalChecklistItem = {
 
 type CreatedDocument = {
   id: string;
+};
+
+type StudentDocumentStorageRow = Omit<StudentDocumentListItem, "signed_url"> & {
+  storage_bucket?: string | null;
+  storage_path: string;
 };
 
 function hashToken(token: string) {
@@ -390,7 +397,7 @@ export async function listStudentDocuments(
     .from("documents")
     .select(
       [
-        "*",
+        "id, agency_id, student_id, checklist_item_id, document_part_id, storage_bucket, storage_path, original_filename, mime_type, file_size_bytes, status, scan_status, scan_error_message, uploaded_at, created_at",
         "checklist_item:checklist_items(document_name)",
         "document_part:document_parts(part_name)",
         "document_extractions(*)",
@@ -411,7 +418,33 @@ export async function listStudentDocuments(
     throw new Error(error.message);
   }
 
-  return (data ?? []) as unknown as StudentDocumentListItem[];
+  const admin = createSupabaseAdminClient();
+  const documents = (data ?? []) as unknown as StudentDocumentStorageRow[];
+  const signedDocuments = await Promise.all(
+    documents.map(async (document) => {
+      const { storage_bucket, storage_path, ...safeDocument } = document;
+      const { data: signed, error: signedError } = await admin.storage
+        .from(storage_bucket || STUDENT_DOCUMENTS_BUCKET)
+        .createSignedUrl(storage_path, 60 * 10);
+
+      if (signedError) {
+        captureAppError(signedError, {
+          module: "documents",
+          action: "document_signed_url",
+          agencyId: profile.agency_id,
+          studentId,
+          documentId: document.id
+        });
+      }
+
+      return {
+        ...safeDocument,
+        signed_url: signed?.signedUrl ?? null
+      };
+    })
+  );
+
+  return signedDocuments;
 }
 
 export async function updateDocumentStatusAction(formData: FormData) {
