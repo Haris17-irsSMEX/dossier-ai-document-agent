@@ -3,6 +3,10 @@ import Link from "next/link";
 import { DocumentStatusBadge } from "@/components/documents/document-status-badge";
 import { requirementLevel } from "@/lib/checklists/request-logic";
 import type { ExportPacketPreview } from "@/lib/export/create-packet";
+import {
+  statusLabels,
+  type VerificationWorkflowStatus
+} from "@/lib/verification/manual-verification";
 
 function scanTone(status?: string | null) {
   switch (status) {
@@ -134,22 +138,27 @@ export function ExportStatusReport({ preview }: { preview: ExportPacketPreview }
               <th>Verification provider</th>
               <th>Status</th>
               <th>Reference</th>
+              <th>Notes / evidence</th>
             </tr>
           </thead>
           <tbody>
-            {preview.verificationRequests.length ? (
-              preview.verificationRequests.map((request) => (
-                <tr key={request.id}>
-                  <td>{request.provider?.name || "Manual"}</td>
+            {preview.verificationWorkflows.length ? (
+              preview.verificationWorkflows.map((workflow) => (
+                <tr key={workflow.id}>
+                  <td>{workflow.provider_label}</td>
                   <td>
-                    <span className="chip info">{request.status.replaceAll("_", " ")}</span>
+                    <span className="chip info">
+                      {statusLabels[workflow.status as VerificationWorkflowStatus] ||
+                        workflow.status}
+                    </span>
                   </td>
-                  <td>{request.portal_reference || "-"}</td>
+                  <td>{workflow.reference_number || "-"}</td>
+                  <td>{workflow.notes || workflow.evidence_url || "-"}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={3}>No verification workflow records yet.</td>
+                <td colSpan={4}>No manual verification workflows recorded.</td>
               </tr>
             )}
           </tbody>

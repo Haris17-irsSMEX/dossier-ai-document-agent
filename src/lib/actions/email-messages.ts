@@ -86,6 +86,70 @@ function formatSignatureBlock(signature?: string | null) {
   return signature?.trim() || "";
 }
 
+function formatCountryLabel(value?: string | null) {
+  return value?.trim() || "";
+}
+
+function buildSenderDisplayName(consultantName?: string | null, agencyName?: string | null) {
+  const name = consultantName?.trim() || "Your consultant";
+  const agency = agencyName?.trim() || "";
+
+  return agency ? `${name} | ${agency}` : name;
+}
+
+function buildPersonalizedSubject(studentName: string, targetCountry?: string | null) {
+  const country = formatCountryLabel(targetCountry);
+
+  return country
+    ? `${studentName}, documents needed for your ${country} application`
+    : `${studentName}, documents needed for your application`;
+}
+
+function buildHumanEmailBody(input: {
+  studentName: string;
+  targetCountry?: string | null;
+  consultantName?: string | null;
+  agencyName?: string | null;
+  deadline?: string | null;
+  uploadLink?: string | null;
+  requiredLines: string[];
+  signature?: string | null;
+}) {
+  const country = formatCountryLabel(input.targetCountry);
+  const greeting = `Hi ${input.studentName},`;
+  const intro = "I hope you are well.";
+  const purpose = country
+    ? `We are preparing your application file for ${country}. Please upload the documents listed below so we can continue reviewing your case.`
+    : "We are preparing your application file. Please upload the documents listed below so we can continue reviewing your case.";
+  const deadlineLine = input.deadline
+    ? `Please try to upload these before ${formatDate(input.deadline) || input.deadline}.`
+    : "";
+  const uploadLine = input.uploadLink ? `Secure upload link:\n${input.uploadLink}` : "";
+  const documentsBlock = formatNumberedBlock(input.requiredLines);
+  const closing = [
+    "If you have any questions, reply to this email and I will guide you.",
+    "Regards,",
+    input.consultantName || "Your consultant",
+    input.agencyName || "",
+    input.signature || "",
+    `This email was sent by ${input.consultantName || "Your consultant"} from ${input.agencyName || "your agency"} regarding your student application file. If this was not expected, you can ignore this message.`
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return [
+    greeting,
+    intro,
+    purpose,
+    documentsBlock ? `Documents needed:\n${documentsBlock}` : "Documents needed:",
+    uploadLine,
+    deadlineLine,
+    closing
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function getVerificationRequestDisplayName(request: VerificationRequestRow) {
   return (
     request.instructions?.trim() ||
@@ -98,6 +162,7 @@ function getVerificationRequestDisplayName(request: VerificationRequestRow) {
 function buildFollowUpEmailDraft(input: {
   messageType: MessageType;
   studentName: string;
+  targetCountry?: string | null;
   consultantName?: string | null;
   agencyName?: string | null;
   uploadLink?: string | null;
@@ -112,13 +177,11 @@ function buildFollowUpEmailDraft(input: {
   const consultantLine = input.agencyName
     ? [input.consultantName || "Your consultant", input.agencyName]
     : [input.consultantName || "Your consultant"];
-  const deadlineLine = input.deadline
-    ? `Please complete this before ${formatDate(input.deadline) || input.deadline}.`
-    : "";
-  const uploadLine = input.uploadLink
-    ? `Upload link:\n${input.uploadLink}`
-    : "";
   const signature = formatSignatureBlock(input.signature);
+  const deadlineLine = input.deadline
+    ? `Please try to upload these before ${formatDate(input.deadline) || input.deadline}.`
+    : "";
+  const uploadLine = input.uploadLink ? `Secure upload link:\n${input.uploadLink}` : "";
   const closingLines = ["Regards,", ...consultantLine, signature].filter(Boolean);
   const footer =
     "You are receiving this because your education consultant is collecting documents for your application.";
@@ -150,6 +213,26 @@ function buildFollowUpEmailDraft(input: {
     };
   }
 
+  const requestLines = [...missingLines, ...problemLines];
+  const humanBody = buildHumanEmailBody({
+    studentName: input.studentName,
+    targetCountry: input.targetCountry,
+    consultantName: input.consultantName,
+    agencyName: input.agencyName,
+    deadline: input.deadline,
+    uploadLink: input.uploadLink,
+    requiredLines: requestLines.length ? requestLines : verificationLines,
+    signature: input.signature
+  });
+  const humanSubject = buildPersonalizedSubject(input.studentName, input.targetCountry);
+
+  if (input.messageType === "upload_link" || input.messageType === "missing_documents") {
+    return {
+      subject: humanSubject,
+      body: humanBody
+    };
+  }
+
   if (input.messageType === "reupload_required") {
     const body = [
       greeting,
@@ -167,7 +250,7 @@ function buildFollowUpEmailDraft(input: {
       .join("\n\n");
 
     return {
-      subject: "Document reupload request for your application",
+      subject: humanSubject,
       body
     };
   }
@@ -189,30 +272,14 @@ function buildFollowUpEmailDraft(input: {
       .join("\n\n");
 
     return {
-      subject: "Document verification update for your application",
+      subject: `${input.studentName}, verification items need your attention`,
       body
     };
   }
 
-  const body = [
-    greeting,
-    intro,
-    "Your education consultant is collecting documents for your application.",
-    missingLines.length
-      ? "Please upload the following requested documents:"
-      : "Please upload the remaining requested documents for your application.",
-    formatNumberedBlock(missingLines),
-    uploadLine,
-    deadlineLine,
-    ...closingLines,
-    footer
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
   return {
-    subject: "Document upload request for your application",
-    body
+    subject: humanSubject,
+    body: humanBody
   };
 }
 
@@ -228,7 +295,7 @@ async function getEmailFollowUpContext(studentId: string) {
   ] = await Promise.all([
     supabase
       .from("students")
-      .select("id, full_name, email, deadline_date")
+      .select("id, full_name, email, target_country, destination_country, deadline_date")
       .eq("agency_id", profile.agency_id)
       .eq("id", studentId)
       .single(),
@@ -274,6 +341,10 @@ async function getEmailFollowUpContext(studentId: string) {
     .eq("agency_id", profile.agency_id)
     .eq("profile_id", profile.id)
     .maybeSingle();
+  const consultantName =
+    (settings?.consultant_whatsapp_display_name as string | null) ||
+    profile.full_name;
+  const agencyName = agency?.name || null;
 
   return {
     profile,
@@ -282,9 +353,13 @@ async function getEmailFollowUpContext(studentId: string) {
     checklistItems: (items ?? []) as ChecklistItemRow[],
     verificationRequests: (requests ?? []) as VerificationRequestRow[],
     gmailConnection,
-    consultantName:
-      (settings?.consultant_whatsapp_display_name as string | null) ||
-      profile.full_name,
+    consultantName,
+    senderDisplayName: buildSenderDisplayName(consultantName, agencyName),
+    replyToEmail: gmailConnection?.email_address || profile.email || null,
+    targetCountry:
+      (student.target_country as string | null) ||
+      (student.destination_country as string | null) ||
+      null,
     signature: (settings?.message_signature as string | null) || null
   };
 }
@@ -409,6 +484,24 @@ export async function sendFollowUpEmailAction(input: {
 
   try {
     const context = await getEmailFollowUpContext(parsed.data.studentId);
+    const buckets = getEmailIssueBuckets(context.checklistItems);
+    const hasVerificationItems = context.verificationRequests.some((request) =>
+      ["required", "pending", "failed", "suspicious", "manual_review", "api_not_connected"].includes(
+        request.status
+      )
+    );
+
+    if (
+      parsed.data.messageType !== "file_complete" &&
+      !buckets.missing.length &&
+      !buckets.problem.length &&
+      !hasVerificationItems
+    ) {
+      return {
+        ok: false as const,
+        error: "No requested documents need follow-up."
+      };
+    }
 
     if (!context.student.email?.trim()) {
       return {
@@ -452,15 +545,14 @@ export async function sendFollowUpEmailAction(input: {
     }
 
     const supabase = await createSupabaseServerClient();
-    const duplicateWindow = new Date(Date.now() - 60_000).toISOString();
+    const duplicateWindow = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const { data: recentMessage, error: duplicateError } = await supabase
       .from("email_messages")
       .select("id")
       .eq("agency_id", context.profile.agency_id)
       .eq("student_id", context.student.id)
-      .eq("to_email", context.student.email)
-      .eq("subject", parsed.data.subject)
-      .eq("body", parsed.data.body)
+      .eq("created_by", context.profile.id)
+      .eq("email_connection_id", context.gmailConnection.id)
       .eq("status", "sent")
       .gte("created_at", duplicateWindow)
       .limit(1)
@@ -484,7 +576,8 @@ export async function sendFollowUpEmailAction(input: {
     if (recentMessage) {
       return {
         ok: false as const,
-        error: "Duplicate send blocked. Please wait before sending again."
+        error:
+          "You recently sent this student an email. Sending repeated messages may affect deliverability."
       };
     }
 
@@ -495,9 +588,11 @@ export async function sendFollowUpEmailAction(input: {
     try {
       const result = await sendEmailWithConnectedGmail({
         connection: context.gmailConnection,
+        fromDisplayName: context.senderDisplayName,
         to: context.student.email,
         subject: parsed.data.subject,
-        textBody: parsed.data.body
+        textBody: parsed.data.body,
+        replyTo: context.replyToEmail || context.gmailConnection.email_address
       });
       providerMessageId = result.providerMessageId;
       status = "sent";
@@ -573,13 +668,15 @@ export async function sendFollowUpEmailAction(input: {
           ok: true as const,
           message: "Email sent.",
           providerMessageId,
-          fromEmail: context.gmailConnection.email_address
+          fromEmail: context.gmailConnection.email_address,
+          fromDisplayName: context.senderDisplayName
         }
       : {
           ok: false as const,
           error: errorMessage || "Gmail API rejected the message.",
           providerMessageId,
-          fromEmail: context.gmailConnection.email_address
+          fromEmail: context.gmailConnection.email_address,
+          fromDisplayName: context.senderDisplayName
         };
   } catch (error) {
     captureAppError(error, {

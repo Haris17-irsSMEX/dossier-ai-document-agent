@@ -18,6 +18,7 @@ import { formatDateTime } from "@/lib/date";
 import { formatEducationBackgroundDisplay } from "@/lib/students/education-background";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { statusLabels } from "@/lib/verification/manual-verification";
 
 export type ExportPacketOptions = {
   includeAcceptedOnly: boolean;
@@ -119,34 +120,25 @@ export type ExportDocument = {
   }>;
 };
 
-export type ExportVerificationRequest = {
+export type ExportVerificationWorkflow = {
   id: string;
   status: string;
-  portal_reference?: string | null;
-  instructions?: string | null;
-  submitted_at?: string | null;
-  completed_at?: string | null;
-  provider?: {
-    name?: string | null;
-    code?: string | null;
-    provider_type?: string | null;
-  } | null;
-};
-
-export type ExportVerificationResult = {
-  id: string;
-  verification_request_id: string;
-  status: string;
+  provider: string;
+  provider_label: string;
+  reference_number?: string | null;
+  selected_board?: string | null;
+  official_url?: string | null;
+  evidence_url?: string | null;
   notes?: string | null;
   verified_at?: string | null;
+  updated_at?: string | null;
 };
 
 export type ExportPacketPreview = {
   student: ExportStudent;
   checklistItems: ExportChecklistItem[];
   documents: ExportDocument[];
-  verificationRequests: ExportVerificationRequest[];
-  verificationResults: ExportVerificationResult[];
+  verificationWorkflows: ExportVerificationWorkflow[];
   completion: {
     total: number;
     complete: number;
@@ -359,15 +351,23 @@ async function createSummaryPdf(preview: ExportPacketPreview) {
     drawLine("No open scan issues recorded.");
   }
 
-  section("Official Verification Summary");
-  if (preview.verificationRequests.length) {
-    preview.verificationRequests.forEach((request) => {
+  section("Manual Verification Summary");
+  if (preview.verificationWorkflows.length) {
+    preview.verificationWorkflows.forEach((workflow) => {
+      const label =
+        statusLabels[workflow.status as keyof typeof statusLabels] || workflow.status;
       drawLine(
-        `${request.provider?.name || "Provider"} - ${request.status}${request.portal_reference ? ` - Ref ${request.portal_reference}` : ""}`
+        `${workflow.provider_label} - ${label}${workflow.reference_number ? ` - Ref ${workflow.reference_number}` : ""}`
       );
+      if (workflow.notes) {
+        drawLine(`Notes: ${workflow.notes}`);
+      }
+      if (workflow.evidence_url) {
+        drawLine(`Evidence: ${workflow.evidence_url}`);
+      }
     });
   } else {
-    drawLine("No verification workflow records found.");
+    drawLine("No manual verification workflows recorded.");
   }
 
   return pdf.save();
@@ -377,8 +377,7 @@ function buildVerificationReport(preview: ExportPacketPreview) {
   return {
     generated_at: new Date().toISOString(),
     student_id: preview.student.id,
-    verification_requests: preview.verificationRequests,
-    verification_results: preview.verificationResults
+    verification_workflows: preview.verificationWorkflows
   };
 }
 
@@ -421,8 +420,7 @@ export async function getExportPacketPreview(studentId: string): Promise<ExportP
   const [
     { data: checklistItems, error: checklistError },
     { data: documents, error: documentsError },
-    { data: verificationRequests, error: verificationError },
-    { data: verificationResults, error: verificationResultsError }
+    { data: verificationWorkflows, error: verificationError }
   ] = await Promise.all([
     supabase
       .from("checklist_items")
@@ -446,14 +444,12 @@ export async function getExportPacketPreview(studentId: string): Promise<ExportP
       .eq("student_id", studentId)
       .order("created_at", { ascending: false }),
     supabase
-      .from("verification_requests")
-      .select("*, provider:verification_providers(name, code, provider_type)")
+      .from("verification_workflows")
+      .select(
+        "id, provider, provider_label, status, reference_number, selected_board, official_url, evidence_url, notes, verified_at, updated_at"
+      )
       .eq("student_id", studentId)
-      .order("created_at"),
-    supabase
-      .from("verification_results")
-      .select("*")
-      .eq("student_id", studentId)
+      .eq("agency_id", student.agency_id)
       .order("created_at")
   ]);
 
@@ -467,10 +463,6 @@ export async function getExportPacketPreview(studentId: string): Promise<ExportP
 
   if (verificationError) {
     throw new Error(verificationError.message);
-  }
-
-  if (verificationResultsError) {
-    throw new Error(verificationResultsError.message);
   }
 
   const allItems = (checklistItems ?? []) as ExportChecklistItem[];
@@ -490,8 +482,7 @@ export async function getExportPacketPreview(studentId: string): Promise<ExportP
     student: student as ExportStudent,
     checklistItems: requestedItems,
     documents: docs,
-    verificationRequests: (verificationRequests ?? []) as unknown as ExportVerificationRequest[],
-    verificationResults: (verificationResults ?? []) as ExportVerificationResult[],
+    verificationWorkflows: (verificationWorkflows ?? []) as ExportVerificationWorkflow[],
     completion: {
       total: summary.active.length,
       complete,

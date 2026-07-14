@@ -495,15 +495,24 @@ export function FollowUpMessageGenerator({
       if (result.ok) {
         setEmailStatusTone("success");
         setEmailStatus(
-          result.fromEmail
-            ? `Sent from ${result.fromEmail}.`
+          result.fromDisplayName && result.fromEmail
+            ? `Sent from ${result.fromDisplayName} <${result.fromEmail}>.`
+            : result.fromEmail
+              ? `Sent from ${result.fromEmail}.`
             : result.message || "Email sent."
         );
         return;
       }
 
-      setEmailStatusTone("error");
-      setEmailStatus(`Email failed: ${result.error || "Gmail send failed."}`);
+      const isDeliverabilityWarning = Boolean(
+        result.error?.includes("deliverability")
+      );
+      setEmailStatusTone(isDeliverabilityWarning ? "info" : "error");
+      setEmailStatus(
+        `${isDeliverabilityWarning ? "Email warning" : "Email failed"}: ${
+          result.error || "Gmail send failed."
+        }`
+      );
     });
   }
 

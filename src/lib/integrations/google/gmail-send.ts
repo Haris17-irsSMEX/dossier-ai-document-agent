@@ -47,21 +47,27 @@ function textToHtmlParagraphs(text: string) {
 
 function buildRawEmail(input: {
   from: string;
+  fromDisplayName?: string;
   to: string;
   subject: string;
   textBody: string;
   htmlBody?: string;
   replyTo?: string;
 }) {
+  const fromValue = input.fromDisplayName?.trim()
+    ? `${sanitizeHeaderValue(input.fromDisplayName).replace(/[<>]/g, "")} <${sanitizeHeaderValue(input.from)}>`
+    : sanitizeHeaderValue(input.from);
   const headers = [
     `To: ${sanitizeHeaderValue(input.to)}`,
-    `From: ${sanitizeHeaderValue(input.from)}`,
+    `From: ${fromValue}`,
     `Subject: ${sanitizeHeaderValue(input.subject)}`,
     "MIME-Version: 1.0"
   ];
 
-  if (input.replyTo?.trim()) {
-    headers.push(`Reply-To: ${sanitizeHeaderValue(input.replyTo)}`);
+  const replyTo = input.replyTo?.trim() || input.from;
+
+  if (replyTo?.trim()) {
+    headers.push(`Reply-To: ${sanitizeHeaderValue(replyTo)}`);
   }
 
   if (input.htmlBody?.trim()) {
@@ -147,6 +153,7 @@ async function ensureFreshAccessToken(connection: EmailConnection) {
 
 export async function sendEmailWithConnectedGmail(input: {
   connection: EmailConnection;
+  fromDisplayName?: string;
   to: string;
   subject: string;
   textBody: string;
@@ -174,6 +181,7 @@ export async function sendEmailWithConnectedGmail(input: {
   );
   const rawEmail = buildRawEmail({
     from: connection.email_address,
+    fromDisplayName: input.fromDisplayName,
     to: input.to,
     subject: input.subject,
     textBody: input.textBody,
