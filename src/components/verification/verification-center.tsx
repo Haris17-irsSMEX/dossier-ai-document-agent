@@ -1,26 +1,39 @@
 "use client";
 
-import { ExternalLink, Plus } from "lucide-react";
+import {
+  AlertTriangle,
+  Ban,
+  CheckCircle2,
+  ExternalLink,
+  Plus,
+  RefreshCw
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 
 import {
   addManualVerificationWorkflow,
-  markVerificationNotRequired,
+  refreshVerificationSuggestions,
   upsertVerificationWorkflow
 } from "@/lib/actions/verification";
 import { formatDateTime } from "@/lib/date";
 import {
   boardOptions,
+  counselorVerificationStatuses,
+  defaultProviderPortalUrls,
   providerDetails,
   safeExternalUrl,
   statusLabels,
   verificationProviders,
-  verificationWorkflowStatuses,
   type VerificationProvider,
   type VerificationWorkflow,
   type VerificationWorkflowStatus
 } from "@/lib/verification/manual-verification";
+
+type Feedback = {
+  tone: "success" | "error";
+  message: string;
+};
 
 function statusTone(status: VerificationWorkflowStatus) {
   switch (status) {
@@ -39,34 +52,82 @@ function statusTone(status: VerificationWorkflowStatus) {
   }
 }
 
+function statusIcon(status: VerificationWorkflowStatus) {
+  switch (status) {
+    case "verified":
+      return <CheckCircle2 size={15} aria-hidden="true" />;
+    case "issue_found":
+      return <AlertTriangle size={15} aria-hidden="true" />;
+    case "not_required":
+      return <Ban size={15} aria-hidden="true" />;
+    default:
+      return null;
+  }
+}
+
+function workflowPortalUrl(
+  provider: VerificationProvider,
+  customUrl?: string | null
+) {
+  return (
+    safeExternalUrl(customUrl) ||
+    safeExternalUrl(defaultProviderPortalUrls[provider])
+  );
+}
+
+function portalUnavailableText(
+  provider: VerificationProvider,
+  selectedBoard?: string
+) {
+  if (provider === "board") {
+    return selectedBoard
+      ? "Portal not configured. Use manual verification and save notes."
+      : "Select a board in details, or use manual verification and save notes.";
+  }
+
+  return "Add a portal link in details if you want to open it from Dossier.";
+}
+
+function relatedDocumentText(workflow: VerificationWorkflow) {
+  if (!workflow.related_documents.length) {
+    return "Added manually";
+  }
+
+  return workflow.related_documents
+    .map((document) => document.document_name)
+    .join(", ");
+}
+
 function WorkflowCard({ workflow }: { workflow: VerificationWorkflow }) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
-  const [status, setStatus] = useState<VerificationWorkflowStatus>(workflow.status);
-  const [providerLabel, setProviderLabel] = useState(workflow.provider_label);
+  const [status, setStatus] = useState<VerificationWorkflowStatus>(
+    workflow.status
+  );
   const [referenceNumber, setReferenceNumber] = useState(
     workflow.reference_number || ""
   );
-  const [selectedBoard, setSelectedBoard] = useState(workflow.selected_board || "");
+  const [selectedBoard, setSelectedBoard] = useState(
+    workflow.selected_board || ""
+  );
   const [officialUrl, setOfficialUrl] = useState(workflow.official_url || "");
   const [evidenceUrl, setEvidenceUrl] = useState(workflow.evidence_url || "");
   const [notes, setNotes] = useState(workflow.notes || "");
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "error";
-    message: string;
-  } | null>(null);
-  const openUrl = safeExternalUrl(officialUrl);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const details = providerDetails[workflow.provider];
+  const openUrl = workflowPortalUrl(workflow.provider, officialUrl);
+  const isNotRequired = status === "not_required";
 
-  function saveWorkflow() {
+  function saveWorkflow(nextStatus = status) {
     setFeedback(null);
     startTransition(async () => {
       const result = await upsertVerificationWorkflow({
         id: workflow.id,
         studentId: workflow.student_id,
         provider: workflow.provider,
-        providerLabel,
-        status,
+        providerLabel: workflow.provider_label,
+        status: nextStatus,
         referenceNumber,
         selectedBoard,
         officialUrl,
@@ -79,91 +140,129 @@ function WorkflowCard({ workflow }: { workflow: VerificationWorkflow }) {
         return;
       }
 
+      setStatus(nextStatus);
       setFeedback({ tone: "success", message: result.message });
       router.refresh();
     });
   }
 
-  function markNotRequired() {
-    setFeedback(null);
-    startTransition(async () => {
-      const result = await markVerificationNotRequired({
-        workflowId: workflow.id,
-        studentId: workflow.student_id
-      });
+  function quickStatus(nextStatus: VerificationWorkflowStatus, openDetails = false) {
+    setStatus(nextStatus);
+    if (openDetails) {
+      setIsOpen(true);
+    }
+    saveWorkflow(nextStatus);
+  }
 
-      if (!result.ok) {
-        setFeedback({ tone: "error", message: result.error });
-        return;
-      }
-
-      setStatus("not_required");
-      setFeedback({ tone: "success", message: result.message });
-      router.refresh();
-    });
+  function recordPortalOpened() {
+    if (status === "not_started") {
+      quickStatus("portal_opened");
+    }
   }
 
   return (
-    <section className="panel verification-workflow-card">
+    <section
+      className={`panel verification-workflow-card ${
+        isNotRequired ? "is-not-required" : ""
+      }`}
+    >
       <div className="verification-workflow-header">
         <div className="verification-workflow-copy">
           <div className="verification-workflow-title-row">
             <h2>{workflow.provider_label}</h2>
-            <span className={`chip ${statusTone(workflow.status)}`}>
-              {statusLabels[workflow.status]}
+            <span className={`chip ${statusTone(status)} verification-status-chip`}>
+              {statusIcon(status)}
+              {statusLabels[status]}
             </span>
           </div>
-          <p>{providerDetails[workflow.provider].description}</p>
-          {workflow.related_documents.length ? (
-            <div className="verification-related-documents">
-              <span>Related documents</span>
-              <strong>
-                {workflow.related_documents
-                  .map((document) => document.document_name)
-                  .join(", ")}
-              </strong>
-            </div>
-          ) : (
-            <div className="verification-related-documents">
-              <span>Source</span>
-              <strong>Added manually</strong>
-            </div>
-          )}
+          <p>{details.description}</p>
+          <div className="verification-related-documents">
+            <span>Related documents</span>
+            <strong>{relatedDocumentText(workflow)}</strong>
+          </div>
           <div className="verification-card-meta">
-            {workflow.reference_number ? (
-              <span>Reference: {workflow.reference_number}</span>
+            {referenceNumber ? <span>Reference: {referenceNumber}</span> : null}
+            {workflow.provider === "board" && selectedBoard ? (
+              <span>Board: {selectedBoard}</span>
             ) : null}
             <span>Updated {formatDateTime(workflow.updated_at) || "recently"}</span>
           </div>
         </div>
+      </div>
+
+      <div className="verification-card-actions">
+        {openUrl ? (
+          <a
+            className="button secondary"
+            href={openUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={recordPortalOpened}
+          >
+            <ExternalLink size={16} aria-hidden="true" />
+            {details.portalButtonLabel}
+          </a>
+        ) : (
+          <button className="button secondary" type="button" disabled>
+            <ExternalLink size={16} aria-hidden="true" />
+            {details.portalButtonLabel}
+          </button>
+        )}
         <button
-          className="button secondary verification-details-button"
+          className="button"
+          type="button"
+          disabled={isPending || status === "verified"}
+          onClick={() => quickStatus("verified")}
+        >
+          Mark verified
+        </button>
+        <button
+          className="button secondary"
+          type="button"
+          disabled={isPending || status === "issue_found"}
+          onClick={() => quickStatus("issue_found", true)}
+        >
+          Mark issue found
+        </button>
+        <button
+          className="button secondary"
+          type="button"
+          disabled={isPending || isNotRequired}
+          onClick={() => quickStatus("not_required")}
+        >
+          Mark not required
+        </button>
+        <button
+          className="button secondary"
           type="button"
           onClick={() => setIsOpen((current) => !current)}
         >
-          {isOpen ? "Close details" : "Open details"}
+          {isOpen ? "Close details" : "Details / Add evidence"}
         </button>
       </div>
+
+      {!openUrl ? (
+        <p className="verification-portal-note">
+          {portalUnavailableText(workflow.provider, selectedBoard)}
+        </p>
+      ) : null}
 
       {isOpen ? (
         <div className="verification-editor">
           <div className="form-grid two">
             <label>
-              Provider label
-              <input
-                value={providerLabel}
-                onChange={(event) => setProviderLabel(event.target.value)}
-              />
-            </label>
-            <label>
               Status
               <select
-                value={status}
+                value={
+                  status === "portal_opened" || status === "submitted"
+                    ? "in_progress"
+                    : status
+                }
                 onChange={(event) =>
                   setStatus(event.target.value as VerificationWorkflowStatus)
                 }
               >
-                {verificationWorkflowStatuses.map((option) => (
+                {counselorVerificationStatuses.map((option) => (
                   <option key={option} value={option}>
                     {statusLabels[option]}
                   </option>
@@ -180,7 +279,7 @@ function WorkflowCard({ workflow }: { workflow: VerificationWorkflow }) {
             </label>
             {workflow.provider === "board" ? (
               <label>
-                Board
+                Select board
                 <select
                   value={selectedBoard}
                   onChange={(event) => setSelectedBoard(event.target.value)}
@@ -194,17 +293,17 @@ function WorkflowCard({ workflow }: { workflow: VerificationWorkflow }) {
                 </select>
               </label>
             ) : null}
-            <label className={workflow.provider === "board" ? "span-2" : ""}>
-              Official portal link
+            <label className={workflow.provider === "board" ? "" : "span-2"}>
+              Portal link (optional)
               <input
                 value={officialUrl}
                 onChange={(event) => setOfficialUrl(event.target.value)}
-                placeholder="Paste the official portal URL"
+                placeholder="Paste an official portal link"
                 inputMode="url"
               />
             </label>
             <label className="span-2">
-              Evidence / proof link or note
+              Evidence / proof note or link
               <input
                 value={evidenceUrl}
                 onChange={(event) => setEvidenceUrl(event.target.value)}
@@ -229,33 +328,58 @@ function WorkflowCard({ workflow }: { workflow: VerificationWorkflow }) {
               className="button"
               type="button"
               disabled={isPending}
-              onClick={saveWorkflow}
+              onClick={() => saveWorkflow()}
             >
               {isPending ? "Saving..." : "Save verification"}
             </button>
-            {openUrl ? (
-              <a
-                className="button secondary"
-                href={openUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <ExternalLink size={16} aria-hidden="true" />
-                Open official portal
-              </a>
-            ) : null}
-            <button
-              className="button secondary"
-              type="button"
-              disabled={isPending || status === "not_required"}
-              onClick={markNotRequired}
-            >
-              Mark not required
-            </button>
           </div>
+        </div>
+      ) : feedback ? (
+        <div className={`alert compact-alert ${feedback.tone}`}>
+          {feedback.message}
         </div>
       ) : null}
     </section>
+  );
+}
+
+function RefreshSuggestions({ studentId }: { studentId: string }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+
+  function refresh() {
+    setFeedback(null);
+    startTransition(async () => {
+      const result = await refreshVerificationSuggestions(studentId);
+
+      if (!result.ok) {
+        setFeedback({ tone: "error", message: result.error });
+        return;
+      }
+
+      setFeedback({ tone: "success", message: result.message });
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="verification-refresh-area">
+      <button
+        className="button secondary"
+        type="button"
+        disabled={isPending}
+        onClick={refresh}
+      >
+        <RefreshCw size={16} aria-hidden="true" />
+        {isPending ? "Refreshing..." : "Refresh suggestions"}
+      </button>
+      {feedback ? (
+        <span className={`verification-inline-feedback ${feedback.tone}`}>
+          {feedback.message}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -264,10 +388,7 @@ function AddManualVerification({ studentId }: { studentId: string }) {
   const [isPending, startTransition] = useTransition();
   const [provider, setProvider] = useState<VerificationProvider>("nadra");
   const [providerLabel, setProviderLabel] = useState("");
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "error";
-    message: string;
-  } | null>(null);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   function addWorkflow() {
     setFeedback(null);
@@ -354,18 +475,39 @@ export function VerificationCenter({
 }) {
   const summary = useMemo(
     () => ({
-      needed: workflows.filter((workflow) => workflow.status !== "not_required").length,
+      needed: workflows.filter((workflow) => workflow.status !== "not_required")
+        .length,
       inProgress: workflows.filter((workflow) =>
         ["portal_opened", "submitted", "in_progress"].includes(workflow.status)
       ).length,
-      verified: workflows.filter((workflow) => workflow.status === "verified").length,
-      issues: workflows.filter((workflow) => workflow.status === "issue_found").length
+      verified: workflows.filter((workflow) => workflow.status === "verified")
+        .length,
+      issues: workflows.filter((workflow) => workflow.status === "issue_found")
+        .length
     }),
     [workflows]
   );
 
+  const activeWorkflows = workflows.filter(
+    (workflow) => workflow.status !== "not_required"
+  );
+  const notRequiredWorkflows = workflows.filter(
+    (workflow) => workflow.status === "not_required"
+  );
+
   return (
     <div className="section-stack">
+      <section className="panel verification-guidance-panel">
+        <div>
+          <strong>Manual verification tracker</strong>
+          <p>
+            Dossier does not verify government records directly. Use the
+            official portal or manual process, then save the result here.
+          </p>
+        </div>
+        <RefreshSuggestions studentId={studentId} />
+      </section>
+
       <section className="panel reminder-setup-bar verification-summary-bar">
         <div className="reminder-setup-heading">
           <h2>Verification progress</h2>
@@ -392,9 +534,17 @@ export function VerificationCenter({
 
       {workflows.length ? (
         <div className="verification-workflow-list">
-          {workflows.map((workflow) => (
+          {activeWorkflows.map((workflow) => (
             <WorkflowCard key={workflow.id} workflow={workflow} />
           ))}
+          {notRequiredWorkflows.length ? (
+            <div className="verification-not-required-group">
+              <h3>Not required</h3>
+              {notRequiredWorkflows.map((workflow) => (
+                <WorkflowCard key={workflow.id} workflow={workflow} />
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : (
         <section className="panel">

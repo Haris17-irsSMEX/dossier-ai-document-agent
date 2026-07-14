@@ -125,6 +125,8 @@ export type ExportVerificationWorkflow = {
   status: string;
   provider: string;
   provider_label: string;
+  related_document_request_ids?: string[] | null;
+  related_documents?: string[];
   reference_number?: string | null;
   selected_board?: string | null;
   official_url?: string | null;
@@ -359,6 +361,9 @@ async function createSummaryPdf(preview: ExportPacketPreview) {
       drawLine(
         `${workflow.provider_label} - ${label}${workflow.reference_number ? ` - Ref ${workflow.reference_number}` : ""}`
       );
+      if (workflow.related_documents?.length) {
+        drawLine(`Related documents: ${workflow.related_documents.join(", ")}`);
+      }
       if (workflow.notes) {
         drawLine(`Notes: ${workflow.notes}`);
       }
@@ -446,7 +451,7 @@ export async function getExportPacketPreview(studentId: string): Promise<ExportP
     supabase
       .from("verification_workflows")
       .select(
-        "id, provider, provider_label, status, reference_number, selected_board, official_url, evidence_url, notes, verified_at, updated_at"
+        "id, provider, provider_label, related_document_request_ids, status, reference_number, selected_board, official_url, evidence_url, notes, verified_at, updated_at"
       )
       .eq("student_id", studentId)
       .eq("agency_id", student.agency_id)
@@ -477,12 +482,25 @@ export async function getExportPacketPreview(studentId: string): Promise<ExportP
   const problemDocuments = docs.filter((document) =>
     isProblemStatus(document.status, document.scan_status)
   ).length;
+  const requestedDocumentById = new Map(
+    requestedItems.map((item) => [item.id, item.document_name])
+  );
+  const activeVerificationWorkflows = (
+    (verificationWorkflows ?? []) as ExportVerificationWorkflow[]
+  )
+    .filter((workflow) => workflow.status !== "not_required")
+    .map((workflow) => ({
+      ...workflow,
+      related_documents: (workflow.related_document_request_ids ?? [])
+        .map((id) => requestedDocumentById.get(id))
+        .filter((name): name is string => Boolean(name))
+    }));
 
   return {
     student: student as ExportStudent,
     checklistItems: requestedItems,
     documents: docs,
-    verificationWorkflows: (verificationWorkflows ?? []) as ExportVerificationWorkflow[],
+    verificationWorkflows: activeVerificationWorkflows,
     completion: {
       total: summary.active.length,
       complete,

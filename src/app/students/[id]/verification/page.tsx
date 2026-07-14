@@ -17,8 +17,8 @@ export default async function StudentVerificationPage({
     <main className="app-shell">
       <div className="workspace section-stack">
         <PageHeader
-          title="Verification tracker"
-          subtitle="Track NADRA, Board, IBCC, HEC, and MOFA verification manually. Dossier stores reference numbers, notes, status, and proof."
+          title="Verification center"
+          subtitle="Track official/manual verification for identity, academic, attestation, and legalization documents."
           actions={
             <Link className="button secondary" href={`/students/${id}`}>
               Student profile

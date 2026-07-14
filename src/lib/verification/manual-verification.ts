@@ -27,6 +27,14 @@ export const verificationWorkflowStatuses = [
 export type VerificationWorkflowStatus =
   (typeof verificationWorkflowStatuses)[number];
 
+export const counselorVerificationStatuses = [
+  "not_started",
+  "in_progress",
+  "verified",
+  "issue_found",
+  "not_required"
+] as const satisfies readonly VerificationWorkflowStatus[];
+
 export type VerificationWorkflow = {
   id: string;
   agency_id: string;
@@ -50,64 +58,84 @@ export type VerificationWorkflow = {
 export const boardOptions = [
   "BISE Lahore",
   "BISE Faisalabad",
+  "BISE Gujranwala",
   "BISE Rawalpindi",
   "BISE Multan",
-  "BISE Gujranwala",
+  "BISE Sahiwal",
   "BISE Sargodha",
   "BISE Bahawalpur",
-  "BISE DG Khan",
   "FBISE",
-  "BISE Karachi / BSEK",
+  "BISE Karachi",
   "BIEK Karachi",
+  "BISE Hyderabad",
+  "BISE Sukkur",
   "BISE Peshawar",
+  "BISE Abbottabad",
+  "BISE Mardan",
   "BISE Quetta",
-  "Other"
+  "AJK Board",
+  "Other / manual"
 ] as const;
 
 export const providerDetails: Record<
   VerificationProvider,
-  { label: string; description: string }
+  { label: string; description: string; portalButtonLabel: string }
 > = {
   nadra: {
     label: "NADRA",
     description:
-      "Use this to track CNIC, FRC, B-form, or identity verification done outside Dossier."
+      "Track identity verification completed through NADRA/manual identity checks.",
+    portalButtonLabel: "Open NADRA services"
   },
   board: {
     label: "Board Verification",
     description:
-      "Track school or college board verification for Matric, O-Level equivalence, Intermediate, or A-Level equivalence."
+      "Track school or college board verification for matric/intermediate/equivalence documents.",
+    portalButtonLabel: "Open board portal"
   },
   ibcc: {
     label: "IBCC",
     description:
-      "Track IBCC attestation, equivalence, or QR/manual verification."
+      "Track IBCC attestation, equivalence, QR, or manual verification.",
+    portalButtonLabel: "Open IBCC verification"
   },
   hec: {
     label: "HEC",
     description:
-      "Track university degree or transcript verification through the HEC manual or e-services process."
+      "Track degree or transcript verification through HEC manual/e-services process.",
+    portalButtonLabel: "Open HEC e-services"
   },
   mofa: {
     label: "MOFA",
     description:
-      "Track final attestation, legalization, or apostille proof when required."
+      "Track MOFA attestation, apostille, or legalization verification.",
+    portalButtonLabel: "Open MOFA verification"
   },
   other: {
     label: "Other manual verification",
     description:
-      "Track another manual verification step for this student."
+      "Track another manual verification step for this student.",
+    portalButtonLabel: "Open portal"
   }
 };
 
 export const statusLabels: Record<VerificationWorkflowStatus, string> = {
   not_started: "Not started",
-  portal_opened: "Portal opened",
-  submitted: "Submitted",
+  portal_opened: "In progress",
+  submitted: "In progress",
   in_progress: "In progress",
   verified: "Verified",
   issue_found: "Issue found",
   not_required: "Not required"
+};
+
+export const defaultProviderPortalUrls: Partial<
+  Record<VerificationProvider, string>
+> = {
+  nadra: "https://www.nadra.gov.pk/",
+  ibcc: "https://attest.ibcc.edu.pk/",
+  hec: "https://eservices.hec.gov.pk/",
+  mofa: "https://mofa.gov.pk/"
 };
 
 type RequestedDocument = { id: string; document_name: string };

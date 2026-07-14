@@ -231,6 +231,31 @@ export async function getVerificationCenter(studentId: string) {
   return getStudentVerificationWorkflows(studentId);
 }
 
+export async function refreshVerificationSuggestions(studentId: string) {
+  try {
+    const parsed = z.string().uuid().parse(studentId);
+    const result = await ensureSuggestedVerificationWorkflows(parsed);
+
+    revalidateVerificationPages(parsed);
+    return {
+      ok: true as const,
+      message: result.createdCount
+        ? "Verification suggestions refreshed."
+        : "Verification suggestions are up to date."
+    };
+  } catch (error) {
+    captureAppError(error, {
+      module: "verification",
+      action: "verification_workflows_refresh",
+      studentId
+    });
+    return {
+      ok: false as const,
+      error: "Could not refresh verification suggestions."
+    };
+  }
+}
+
 export async function upsertVerificationWorkflow(input: {
   id?: string;
   studentId: string;

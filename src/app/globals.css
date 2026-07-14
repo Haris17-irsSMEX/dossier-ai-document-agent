@@ -361,6 +361,47 @@ textarea:focus-visible {
   font-size: 17px;
 }
 
+.verification-guidance-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+}
+
+.verification-guidance-panel strong {
+  display: block;
+  font-size: 15px;
+}
+
+.verification-guidance-panel p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.verification-refresh-area {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.verification-inline-feedback {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.verification-inline-feedback.success {
+  color: var(--success);
+}
+
+.verification-inline-feedback.error {
+  color: var(--danger);
+}
+
 .verification-workflow-list {
   display: grid;
   gap: 14px;
@@ -392,6 +433,12 @@ textarea:focus-visible {
 
 .verification-workflow-title-row h2 {
   font-size: 17px;
+}
+
+.verification-status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .verification-workflow-copy > p {
@@ -432,6 +479,45 @@ textarea:focus-visible {
   flex: 0 0 auto;
 }
 
+.verification-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.verification-card-actions .button {
+  gap: 7px;
+  min-height: 42px;
+  padding: 10px 13px;
+}
+
+.verification-portal-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.verification-workflow-card.is-not-required {
+  background: #fbfaf8;
+}
+
+.verification-not-required-group {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.verification-not-required-group h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .verification-editor {
   display: grid;
   gap: 16px;
@@ -442,6 +528,12 @@ textarea:focus-visible {
 
 .verification-editor-actions {
   justify-content: flex-start;
+}
+
+.compact-alert {
+  margin-top: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
 }
 
 .manual-verification-disclosure > summary {
@@ -3791,6 +3883,15 @@ code {
   .verification-workflow-header {
     display: grid;
     gap: 14px;
+  }
+
+  .verification-guidance-panel {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .verification-refresh-area {
+    justify-content: flex-start;
   }
 
   .verification-details-button {

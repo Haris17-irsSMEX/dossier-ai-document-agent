@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { DocumentStatusBadge } from "@/components/documents/document-status-badge";
 import { requirementLevel } from "@/lib/checklists/request-logic";
+import { formatDateTime } from "@/lib/date";
 import type { ExportPacketPreview } from "@/lib/export/create-packet";
 import {
   statusLabels,
@@ -135,10 +136,12 @@ export function ExportStatusReport({ preview }: { preview: ExportPacketPreview }
         <table>
           <thead>
             <tr>
-              <th>Verification provider</th>
+              <th>Provider</th>
+              <th>Related documents</th>
               <th>Status</th>
               <th>Reference</th>
               <th>Notes / evidence</th>
+              <th>Updated</th>
             </tr>
           </thead>
           <tbody>
@@ -147,6 +150,11 @@ export function ExportStatusReport({ preview }: { preview: ExportPacketPreview }
                 <tr key={workflow.id}>
                   <td>{workflow.provider_label}</td>
                   <td>
+                    {workflow.related_documents?.length
+                      ? workflow.related_documents.join(", ")
+                      : "Manual verification"}
+                  </td>
+                  <td>
                     <span className="chip info">
                       {statusLabels[workflow.status as VerificationWorkflowStatus] ||
                         workflow.status}
@@ -154,11 +162,12 @@ export function ExportStatusReport({ preview }: { preview: ExportPacketPreview }
                   </td>
                   <td>{workflow.reference_number || "-"}</td>
                   <td>{workflow.notes || workflow.evidence_url || "-"}</td>
+                  <td>{formatDateTime(workflow.updated_at) || "-"}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={4}>No manual verification workflows recorded.</td>
+                <td colSpan={6}>No manual verification workflows recorded.</td>
               </tr>
             )}
           </tbody>
