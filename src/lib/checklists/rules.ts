@@ -7,7 +7,7 @@ import {
 } from "@/lib/checklists/document-templates";
 import { getChecklistPhase, type ChecklistPhaseSlug } from "@/lib/checklists/phases";
 import type { CaseStage } from "@/lib/checklists/request-logic";
-import { normalizeEducationBackground } from "@/lib/students/education-background";
+import { parseEducationCompleted } from "@/lib/students/education-background";
 
 export const acceptedFormatSchema = z.enum(["pdf", "jpg", "png", "docx"]);
 export const uploadTypeSchema = z.enum(["single", "multiple", "multi_part"]);
@@ -79,16 +79,6 @@ function normalized(value?: string | null) {
 function hasValue(value: string | null | undefined, candidates: string[]) {
   const source = normalized(value);
   return candidates.some((candidate) => source.includes(candidate));
-}
-
-function hasEducationValue(
-  value: string | null | undefined,
-  aliases: string[]
-) {
-  return hasValue(
-    value,
-    aliases.map((alias) => alias.toLowerCase())
-  );
 }
 
 function templateToRule(
@@ -176,41 +166,58 @@ export function buildSmartChecklistRules(input: ChecklistRuleInput): ChecklistRu
   const items: ChecklistRuleItem[] = [];
   const country = normalized(input.targetCountry);
   const level = normalized(input.programLevel);
-  const education = normalized(normalizeEducationBackground(input.educationBackground));
+  const education = new Set<string>(parseEducationCompleted(input.educationBackground));
   const sponsor = normalized(input.sponsorType);
   const isBachelor = hasValue(level, ["bachelor", "undergraduate"]);
   const isMaster = hasValue(level, ["master", "postgraduate", "mba"]);
   const isPhd = hasValue(level, ["phd", "doctor", "research"]);
   const isEuropean = hasValue(country, ["germany", "italy", "france", "netherlands", "sweden", "finland", "austria", "spain"]);
+  const hasEdu = (value: string) => education.has(value);
+  const hasFamilySponsor = hasValue(sponsor, ["parent", "family", "guardian", "father", "mother"]);
+  const hasSelfSponsor = hasValue(sponsor, ["self"]);
+  const hasScholarshipSponsor = hasValue(sponsor, ["scholarship", "award", "funding"]);
+  const hasLoanSponsor = hasValue(sponsor, ["loan"]);
+  const hasEmployerSponsor = hasValue(sponsor, ["government", "employer", "sponsored"]);
 
   ["passport", "cnic", "photo", "cv", "sop"].forEach((key) =>
     addTemplate(items, key, input)
   );
 
+  if (hasEdu("matric_ssc")) {
+    addTemplate(items, "matric_records", input);
+  }
+  if (hasEdu("intermediate_hssc")) {
+    addTemplate(items, "intermediate_records", input);
+  }
+  if (hasEdu("o_level")) {
+    addTemplate(items, "olevel_records", input);
+    addTemplate(items, "oa_equivalence", input);
+  }
+  if (hasEdu("a_level")) {
+    addTemplate(items, "alevel_records", input);
+    addTemplate(items, "oa_equivalence", input);
+  }
+  if (hasEdu("diploma")) {
+    addTemplate(items, "diploma_records", input);
+  }
+  if (hasEdu("foundation")) {
+    addTemplate(items, "foundation_records", input);
+  }
+  if (hasEdu("bachelor")) {
+    addTemplate(items, "bachelor_degree", input);
+    addTemplate(items, "bachelor_transcript", input);
+  }
+  if (hasEdu("master") || hasEdu("mphil_ms")) {
+    addTemplate(items, "master_degree", input);
+    addTemplate(items, "master_transcript", input);
+  }
+
   if (isBachelor) {
-    if (hasEducationValue(education, ["o-level", "olevel", "cambridge"])) {
-      addTemplate(items, "olevel_records", input);
-      addTemplate(items, "oa_equivalence", input);
-    } else {
-      addTemplate(items, "matric_records", input);
-    }
-
-    if (hasEducationValue(education, ["a-level", "alevel", "cambridge"])) {
-      addTemplate(items, "alevel_records", input);
-      addTemplate(items, "oa_equivalence", input);
-    } else {
-      addTemplate(items, "intermediate_records", input);
-    }
-
     addTemplate(items, "language_proof", input);
     addTemplate(items, "recommendations", input);
   }
 
   if (isMaster || isPhd) {
-    addTemplate(items, "matric_records", input);
-    addTemplate(items, "intermediate_records", input);
-    addTemplate(items, "bachelor_degree", input);
-    addTemplate(items, "bachelor_transcript", input);
     addTemplate(items, "language_proof", input);
     addTemplate(items, "recommendations", input, {
       requirement_level: "required",
@@ -223,8 +230,6 @@ export function buildSmartChecklistRules(input: ChecklistRuleInput): ChecklistRu
   }
 
   if (isPhd) {
-    addTemplate(items, "master_degree", input);
-    addTemplate(items, "master_transcript", input);
     addTemplate(items, "research_proposal", input);
     addTemplate(items, "supervisor_acceptance", input);
     addTemplate(items, "thesis_abstract", input);
@@ -238,13 +243,29 @@ export function buildSmartChecklistRules(input: ChecklistRuleInput): ChecklistRu
     addTemplate(items, "portfolio", input);
   }
 
-  if (sponsor) {
+  if (hasFamilySponsor) {
     addTemplate(items, "sponsor_id", input);
     addTemplate(items, "sponsor_relationship", input);
     addTemplate(items, "sponsorship_affidavit", input);
     addTemplate(items, "bank_statement", input);
     addTemplate(items, "bank_maintenance", input);
-    addTemplate(items, "tax_returns", input);
+  } else if (hasSelfSponsor) {
+    addTemplate(items, "bank_statement", input, {
+      instructions: "Upload student bank statements or funds proof."
+    });
+    addTemplate(items, "bank_maintenance", input, {
+      instructions: "Upload the student's latest bank-issued account maintenance certificate."
+    });
+  } else if (hasScholarshipSponsor || hasEmployerSponsor) {
+    addTemplate(items, "scholarship_letter", input, {
+      condition_note: "Provide the official scholarship, employer, government, or funding letter.",
+      instructions: "Upload the official award, sponsorship, or funding confirmation letter."
+    });
+  } else if (hasLoanSponsor) {
+    addTemplate(items, "special_funds", input, {
+      condition_note: "Use when an education loan funds the case.",
+      instructions: "Upload the education loan approval or sanctioned funding letter."
+    });
   }
 
   if (hasValue(sponsor, ["business", "company", "entrepreneur"])) {
@@ -318,13 +339,13 @@ export function buildSmartChecklistRules(input: ChecklistRuleInput): ChecklistRu
     );
   }
 
-  if (hasEducationValue(education, ["gap"])) {
+  if (hasValue(input.educationBackground, ["gap"])) {
     addTemplate(items, "gap_explanation", input);
   }
-  if (hasEducationValue(education, ["refusal", "refused"])) {
+  if (hasValue(input.educationBackground, ["refusal", "refused"])) {
     addTemplate(items, "refusal_explanation", input);
   }
-  if (hasEducationValue(education, ["low marks", "backlog"])) {
+  if (hasValue(input.educationBackground, ["low marks", "backlog"])) {
     addTemplate(items, "academic_risk_explanation", input);
   }
 

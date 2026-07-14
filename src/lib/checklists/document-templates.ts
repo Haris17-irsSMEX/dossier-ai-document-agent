@@ -174,6 +174,26 @@ export const DOCUMENT_TEMPLATES: readonly DocumentTemplate[] = [
     instructions: "Upload the IBCC equivalence certificate if it applies to this case."
   }),
   template({
+    key: "diploma_records",
+    name: "Diploma Certificate and Transcript",
+    phase_slug: "profile_academic_file",
+    category: "educational",
+    category_label: "Academic Records",
+    requirement_level: "required",
+    upload_type: "multiple",
+    instructions: "Upload the completed diploma certificate, transcript, or DAE records."
+  }),
+  template({
+    key: "foundation_records",
+    name: "Foundation Certificate and Transcript",
+    phase_slug: "profile_academic_file",
+    category: "educational",
+    category_label: "Academic Records",
+    requirement_level: "required",
+    upload_type: "multiple",
+    instructions: "Upload the completed foundation certificate and transcript."
+  }),
+  template({
     key: "bachelor_degree",
     name: "Bachelor Degree Certificate",
     phase_slug: "profile_academic_file",

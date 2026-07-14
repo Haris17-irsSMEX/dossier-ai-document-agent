@@ -3,7 +3,8 @@
 import { useState } from "react";
 
 import {
-  educationBackgroundOptions,
+  EDUCATION_COMPLETED_OPTIONS,
+  educationCompletedLabel,
   parseEducationBackground,
   serializeEducationBackground
 } from "@/lib/students/education-background";
@@ -29,8 +30,8 @@ export function EducationBackgroundField({
     });
   }
 
-  const hasOther = selected.includes("Other");
-  const selectedDisplay = selected.filter((option) => option !== "Other");
+  const hasOther = selected.includes("other");
+  const selectedDisplay = selected.filter((option) => option !== "other");
   const serializedValue = serializeEducationBackground(selected, otherText);
 
   const showSummary = selectedDisplay.length > 0 || (hasOther && otherText.trim());
@@ -42,22 +43,22 @@ export function EducationBackgroundField({
         Select all qualifications the student has completed.
       </span>
       <div className="education-background-grid">
-        {educationBackgroundOptions.map((option) => {
-          const checked = selected.includes(option);
+        {EDUCATION_COMPLETED_OPTIONS.map((option) => {
+          const checked = selected.includes(option.value);
 
           return (
             <label
-              key={option}
+              key={option.value}
               className={`education-option ${checked ? "selected" : ""}`}
             >
               <input
                 checked={checked}
                 name={`${name}_values`}
                 type="checkbox"
-                value={option}
-                onChange={() => toggleOption(option)}
+                value={option.value}
+                onChange={() => toggleOption(option.value)}
               />
-              <span>{option}</span>
+              <span>{option.label}</span>
             </label>
           );
         })}
@@ -66,7 +67,7 @@ export function EducationBackgroundField({
         <div className="education-selection-summary">
           {selectedDisplay.map((option) => (
             <span className="chip" key={option}>
-              {option}
+              {educationCompletedLabel(option)}
             </span>
           ))}
           {hasOther && otherText.trim() ? (

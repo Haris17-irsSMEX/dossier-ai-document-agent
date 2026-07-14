@@ -27,6 +27,7 @@ import {
 import { buildSmartChecklistRules } from "@/lib/checklists/rules";
 import {
   normalizeEducationBackground,
+  parseEducationCompleted,
   serializeEducationBackground
 } from "@/lib/students/education-background";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -81,12 +82,18 @@ function getEducationBackgroundFromFormData(formData: FormData) {
   const otherText = String(formData.get("education_background_other") || "");
 
   if (selectedValues.length) {
-    return serializeEducationBackground(selectedValues, otherText);
+    const serialized = serializeEducationBackground(selectedValues, otherText);
+
+    return parseEducationCompleted(serialized).length ? serialized : "";
   }
 
-  return normalizeEducationBackground(
+  const normalizedEducationBackground = normalizeEducationBackground(
     String(formData.get("education_background") || "")
   );
+
+  return parseEducationCompleted(normalizedEducationBackground).length
+    ? normalizedEducationBackground
+    : "";
 }
 
 export async function getCurrentProfile() {

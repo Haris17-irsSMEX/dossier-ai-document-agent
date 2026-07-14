@@ -1,18 +1,67 @@
-export const educationBackgroundOptions = [
-  "Matric / SSC",
-  "O-Level",
-  "Intermediate / HSSC",
-  "A-Level",
-  "Diploma",
-  "Foundation",
-  "Bachelor",
-  "Master",
-  "MPhil / MS",
-  "PhD",
-  "Other"
+export const EDUCATION_COMPLETED_OPTIONS = [
+  {
+    value: "matric_ssc",
+    label: "Matric / SSC",
+    aliases: ["matric", "ssc", "secondary certificate", "secondary school"]
+  },
+  {
+    value: "o_level",
+    label: "O-Level",
+    aliases: ["o-level", "olevel", "o level", "cambridge o level"]
+  },
+  {
+    value: "intermediate_hssc",
+    label: "Intermediate / HSSC",
+    aliases: ["intermediate", "hssc", "higher secondary", "higher secondary certificate"]
+  },
+  {
+    value: "a_level",
+    label: "A-Level",
+    aliases: ["a-level", "alevel", "a level", "cambridge a level"]
+  },
+  {
+    value: "diploma",
+    label: "Diploma",
+    aliases: ["diploma", "dae"]
+  },
+  {
+    value: "foundation",
+    label: "Foundation",
+    aliases: ["foundation", "foundation year"]
+  },
+  {
+    value: "bachelor",
+    label: "Bachelor",
+    aliases: ["bachelor", "bachelors", "bs", "ba", "bsc", "bba", "be"]
+  },
+  {
+    value: "master",
+    label: "Master",
+    aliases: ["master", "masters", "msc", "ma", "mba"]
+  },
+  {
+    value: "mphil_ms",
+    label: "MPhil / MS",
+    aliases: ["mphil", "m phil", "mphil ms", "ms"]
+  },
+  {
+    value: "phd",
+    label: "PhD",
+    aliases: ["phd", "doctorate", "doctoral"]
+  },
+  {
+    value: "other",
+    label: "Other",
+    aliases: ["other"]
+  }
 ] as const;
 
-export const EDUCATION_COMPLETED_OPTIONS = educationBackgroundOptions;
+export type EducationCompletedValue =
+  (typeof EDUCATION_COMPLETED_OPTIONS)[number]["value"];
+
+export const educationBackgroundOptions = EDUCATION_COMPLETED_OPTIONS.map(
+  (option) => option.label
+);
 
 export const programLevelOptions = [
   "Foundation",
@@ -22,34 +71,28 @@ export const programLevelOptions = [
   "PhD"
 ] as const;
 
-const educationAliases: Record<string, string[]> = {
-  "Matric / SSC": ["matric", "ssc", "secondary"],
-  "O-Level": ["o-level", "olevel"],
-  "Intermediate / HSSC": ["intermediate", "hssc", "higher secondary"],
-  "A-Level": ["a-level", "alevel"],
-  Diploma: ["diploma", "dae"],
-  Foundation: ["foundation"],
-  Bachelor: ["bachelor", "bs", "ba", "bsc", "bba", "be"],
-  Master: ["master", "msc", "ma", "mba"],
-  "MPhil / MS": ["mphil", "mphil / ms", "ms"],
-  PhD: ["phd", "doctorate", "doctoral"],
-  Other: ["other"]
-};
+const optionOrder = EDUCATION_COMPLETED_OPTIONS.map((option) => option.value);
 
-function normalizeValue(value: string) {
-  return value.trim().toLowerCase();
+function normalizeForMatch(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "");
 }
 
-function matchesOption(input: string, option: string) {
-  const normalizedInput = normalizeValue(input);
-  const aliases = educationAliases[option] || [];
+function optionForValue(value: string) {
+  const normalized = normalizeForMatch(value);
 
-  return aliases.some(
-    (alias) =>
-      normalizedInput === alias ||
-      normalizedInput.includes(alias) ||
-      alias.includes(normalizedInput)
-  );
+  return EDUCATION_COMPLETED_OPTIONS.find((option) => {
+    if (option.value === value) {
+      return true;
+    }
+
+    const candidates = [option.value, option.label, ...option.aliases];
+
+    return candidates.some((candidate) => normalizeForMatch(candidate) === normalized);
+  });
 }
 
 function splitStoredEducationValue(value?: string | null) {
@@ -80,16 +123,17 @@ function splitStoredEducationValue(value?: string | null) {
 }
 
 export function parseEducationBackground(value?: string | null) {
-  const selected = new Set<string>();
+  const selected = new Set<EducationCompletedValue>();
   const otherEntries: string[] = [];
   const parts = splitStoredEducationValue(value);
 
   for (const part of parts) {
-    const normalizedPart = normalizeValue(part);
+    const trimmedPart = part.trim();
+    const normalizedPart = trimmedPart.toLowerCase();
 
     if (normalizedPart.startsWith("other:")) {
-      selected.add("Other");
-      const custom = part.slice(part.indexOf(":") + 1).trim();
+      selected.add("other");
+      const custom = trimmedPart.slice(trimmedPart.indexOf(":") + 1).trim();
 
       if (custom) {
         otherEntries.push(custom);
@@ -97,39 +141,51 @@ export function parseEducationBackground(value?: string | null) {
       continue;
     }
 
-    const matchedOption = educationBackgroundOptions.find((option) =>
-      option !== "Other" ? matchesOption(part, option) : false
-    );
+    const matchedOption = optionForValue(trimmedPart);
 
     if (matchedOption) {
-      selected.add(matchedOption);
+      selected.add(matchedOption.value);
       continue;
     }
 
-    selected.add("Other");
-    otherEntries.push(part);
+    selected.add("other");
+    otherEntries.push(trimmedPart);
   }
 
   return {
-    selected: educationBackgroundOptions.filter((option) => selected.has(option)),
+    selected: optionOrder.filter((option) => selected.has(option)),
     otherText: otherEntries.join(", ")
   };
+}
+
+export function educationCompletedLabel(value: string) {
+  return optionForValue(value)?.label || value;
 }
 
 export function serializeEducationBackground(
   selectedOptions: string[],
   otherText?: string
 ) {
-  const knownSelections: string[] = educationBackgroundOptions.filter(
-    (option) => option !== "Other" && selectedOptions.includes(option)
+  const selected = new Set<EducationCompletedValue>();
+
+  for (const option of selectedOptions) {
+    const matched = optionForValue(option);
+
+    if (matched) {
+      selected.add(matched.value);
+    }
+  }
+
+  const values: string[] = optionOrder.filter(
+    (option) => option !== "other" && selected.has(option)
   );
   const trimmedOther = otherText?.trim();
 
-  if (selectedOptions.includes("Other") && trimmedOther) {
-    knownSelections.push(`Other: ${trimmedOther}`);
+  if (selected.has("other")) {
+    values.push(trimmedOther ? `other:${trimmedOther}` : "other");
   }
 
-  return knownSelections.join(", ");
+  return JSON.stringify(values);
 }
 
 export function normalizeEducationBackground(
@@ -144,7 +200,18 @@ export function normalizeEducationBackground(
 }
 
 export function formatEducationBackgroundDisplay(value?: string | null) {
-  return normalizeEducationBackground(value);
+  const parsed = parseEducationBackground(value);
+  const labels = parsed.selected
+    .filter((option) => option !== "other")
+    .map(educationCompletedLabel);
+
+  if (parsed.selected.includes("other") && parsed.otherText.trim()) {
+    labels.push(`Other: ${parsed.otherText.trim()}`);
+  } else if (parsed.selected.includes("other")) {
+    labels.push("Other");
+  }
+
+  return labels.join(", ");
 }
 
 export function parseEducationCompleted(value?: string | null) {
